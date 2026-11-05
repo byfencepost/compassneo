@@ -3,6 +3,7 @@ import { action, internalMutation, internalQuery, query } from "./_generated/ser
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import {
+  looksLikeSlug,
   normalizeSlug,
   probeSchool,
   resolveSlug,
@@ -22,26 +23,18 @@ const pub = (s: Doc<"schools">): School => ({ slug: s.slug, name: s.name, organi
 
 // ---------- reads ----------
 
-/** Known schools matching a name or an address. Empty text lists the schools people sign in to most. */
+/**
+ * A known school at exactly the address typed, or nothing. Never a list of known schools, by name or by popularity:
+ * which schools are in this table says which schools people use Compass Neo at. Names are searched in Compass's own
+ * directory (`directory`), which lists every school whether anyone here uses it or not.
+ */
 export const search = query({
   args: { q: v.string() },
   handler: async (ctx, { q }): Promise<School[]> => {
-    const text = q.trim();
-    if (!text) {
-      const top = await ctx.db.query("schools").withIndex("by_signIns").order("desc").take(5);
-      return top.filter(s => s.signIns > 0).map(pub);
-    }
-    const out = new Map<string, School>();
-    const slug = normalizeSlug(text);
-    if (slug) {
-      const exact = await ctx.db.query("schools").withIndex("by_slug", i => i.eq("slug", slug)).unique();
-      if (exact) out.set(exact.slug, pub(exact));
-    }
-    if (text.length >= 2) {
-      const hits = await ctx.db.query("schools").withSearchIndex("search_name", s => s.search("name", text)).take(8);
-      for (const h of hits) if (!out.has(h.slug)) out.set(h.slug, pub(h));
-    }
-    return [...out.values()];
+    const slug = normalizeSlug(q.trim());
+    if (!slug || !looksLikeSlug(q)) return [];
+    const exact = await ctx.db.query("schools").withIndex("by_slug", i => i.eq("slug", slug)).unique();
+    return exact ? [pub(exact)] : [];
   },
 });
 

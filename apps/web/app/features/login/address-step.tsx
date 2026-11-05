@@ -36,7 +36,7 @@ export function AddressStep({
   const submit = async (values: Record<string, unknown>) => {
     const slug = normalizeSlug(String(values.address ?? ""));
     if (!slug) {
-      void morph(() => setErrors({ address: "Use the part before .compass.education, such as thornlieshs-wa." }));
+      void morph(() => setErrors({ address: "Use the part before .compass.education, such as yourschool-vic." }));
       return;
     }
     setPending(true);
@@ -65,7 +65,7 @@ export function AddressStep({
           mono
           defaultValue={initial}
           trailing={<span className="mono text-text-2">.compass.education</span>}
-          placeholder="thornlieshs-wa"
+          placeholder="yourschool-vic"
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}

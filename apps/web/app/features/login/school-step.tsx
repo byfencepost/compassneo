@@ -18,9 +18,10 @@ type Option =
 const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]+/g, "") === b.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 /**
- * Which school. Type a name and three sources answer: schools this device used, schools anyone has signed in to
- * (Convex), and Compass's own directory. Paste an address and it is offered as is. Picking a directory school
- * finds its address on Compass and remembers it for everyone.
+ * Which school. Type a name and two sources answer: schools this device used, and Compass's own directory, which
+ * lists every Compass school, so the list never says which schools other people use Compass Neo at. Paste an address
+ * and it is offered as is (named, if it is known). Picking a directory school finds its address on Compass and
+ * remembers it for everyone.
  */
 export function SchoolStep({
   focusOnMount,
@@ -36,7 +37,7 @@ export function SchoolStep({
   const [error, setError] = useState<string | null>(null);
   const recent = useRecentSchools();
   const settled = useDebounced(q.trim(), 220);
-  const known = useQuery(api.schools.search, { q: settled });
+  const known = useQuery(api.schools.search, looksLikeSlug(settled) ? { q: settled } : "skip");
   const directory = useDirectory(settled);
   const resolve = useAction(api.schools.resolve);
   const verify = useAction(api.schools.verify);
@@ -120,7 +121,7 @@ export function SchoolStep({
             size="lg"
             showSearchIcon
             showTrigger={false}
-            placeholder="Thornlie Senior High School"
+            placeholder="Search for your school"
             autoFocus={focusOnMount}
             aria-invalid={!!error}
           />
