@@ -1,0 +1,16 @@
+{
+  "name": "@compassneo/compass",
+  "private": true,
+  "type": "module",
+  "description": "Fetch-only Compass Education client. Runs anywhere fetch does: Convex actions, React Native, a watch companion. Endpoint shapes ported from compass-education (MIT, heheleo) and the bundled extras.js.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./school": "./src/school.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

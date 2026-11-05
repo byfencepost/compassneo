@@ -1,0 +1,151 @@
+/* The student's own pages (features/student): the shortcuts on home, and Attendance, Events and Chronicle in the side
+   panel. Colours come from Glaze's roles, its status colours (green, amber, red for attendance) and the class hues in
+   brand.css (data-hue): each page and each tile wears one, and a class's attendance wears its own. No shadows; the
+   only depth is the lit top edge the cards already have (neo-stack, timetable.css). */
+
+@layer components {
+/* ---------- the shortcuts on home ---------- */
+
+.neo-st-tile {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-state) var(--ease-out);
+}
+.neo-st-tile + .neo-st-tile { border-inline-start: var(--line-width, 1px) solid var(--line); }
+.neo-st-tile:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+@media (hover: hover) {
+  .neo-st-tile:not([data-on]):hover { background-color: var(--hover-row); }
+}
+/* The page open in the panel: its tile pressed in (Glaze's selected grey) with a short bar in its colour along the
+   foot. One element, handed between the tiles, so it glides to the next one opened. */
+.neo-st-tile-on { background: var(--pressed); pointer-events: none; }
+.neo-st-tile-on::after {
+  content: "";
+  position: absolute;
+  inset-inline: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--neo-class, var(--neo));
+}
+.neo-st-value { font: 600 calc(15px * var(--ui-scale))/1.25 var(--font-sans); letter-spacing: -0.005em; font-variant-numeric: tabular-nums; }
+
+/* ---------- the panel ---------- */
+
+/* The page's colour washes down behind its name only, a touch lighter than a class's. */
+.neo-st-top {
+  background-image: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class, var(--neo)) 24%, transparent), color-mix(in oklab, var(--neo-class, var(--neo)) 0%, transparent));
+  box-shadow: inset 0 -1px 0 var(--line-faint);
+}
+.neo-st-scroll { scrollbar-width: none; }
+.neo-st-scroll::-webkit-scrollbar { display: none; }
+
+.neo-st-title { font: 600 calc(20px * var(--ui-scale))/1.2 var(--font-sans); letter-spacing: -0.01em; }
+/* The year's attendance: the one big figure, as big as the class panel's grade. */
+.neo-st-hero { font: 600 calc(22px * var(--ui-scale))/1.15 var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.neo-st-figure { font: 600 calc(15px * var(--ui-scale))/1.3 var(--font-sans); font-variant-numeric: tabular-nums; }
+.neo-st-pre { white-space: pre-line; }
+
+/* A row that opens, and a section's name that folds its card. */
+.neo-st-row, .neo-st-fold {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-state) var(--ease-out);
+}
+.neo-st-row:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+.neo-st-fold { border-radius: var(--radius-tag); }
+.neo-st-fold:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset-sm, 1px); }
+@media (hover: hover) {
+  .neo-st-row:hover { background-color: var(--hover-row); }
+  .neo-st-fold:hover { background-color: var(--hover); }
+}
+
+@keyframes neo-st-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.neo-st-skel {
+  display: block;
+  border-radius: 6px;
+  background: var(--field);
+  animation: neo-st-pulse 1.4s var(--ease-out) infinite;
+}
+
+/* ---------- marks: how a roll, a day or a period went ---------- */
+
+.neo-st-mark[data-mark="present"] { --neo-mark: var(--ok); }
+.neo-st-mark[data-mark="late"] { --neo-mark: var(--warn); }
+.neo-st-mark[data-mark="authorised"] { --neo-mark: var(--neo); }
+.neo-st-mark[data-mark="absent"] { --neo-mark: var(--fail); }
+.neo-st-mark[data-mark="other"] { --neo-mark: var(--ink-45); }
+.neo-st-mark[data-mark="none"] { --neo-mark: var(--field); }
+/* A class's present rolls, in its own colour. */
+.neo-st-mark[data-mark="class"] { --neo-mark: var(--neo-class, var(--ink-45)); }
+
+/* A share as a bar: a pill track with each part in its mark's colour, lit from above like the grade bars. A part
+   never shrinks under 3px, so one absence in a hundred rolls still shows. */
+.neo-st-bar { height: 6px; border-radius: 999px; background: var(--field); overflow: hidden; }
+.neo-st-seg {
+  flex: var(--g) 1 0;
+  min-width: 3px;
+  height: 100%;
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--neo-mark), #fff 22%), var(--neo-mark));
+}
+.neo-st-seg[data-mark="none"] { background: var(--field); }
+
+/* The legend's swatch. */
+.neo-st-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; background: var(--neo-mark); }
+.neo-st-key[data-mark="none"] { box-shadow: inset 0 0 0 1px var(--line); }
+
+/* The year's ring, in its status colour, lit from above; the track pressed in, as the grade donut's. */
+.neo-st-ring[data-tone="ok"] { --neo-tone: var(--ok); }
+.neo-st-ring[data-tone="warn"] { --neo-tone: var(--warn); }
+.neo-st-ring[data-tone="fail"] { --neo-tone: var(--fail); }
+.neo-st-ring-hi { stop-color: color-mix(in oklab, var(--neo-tone), #fff 25%); }
+.neo-st-ring-lo { stop-color: var(--neo-tone); }
+.neo-st-track-hi { stop-color: color-mix(in oklab, var(--line), #000 22%); }
+.neo-st-track-lo { stop-color: var(--line); }
+
+/* ---------- this term, period by period ---------- */
+
+/* A row a week: its Monday, then a column a weekday. */
+.neo-st-grid {
+  display: grid;
+  grid-template-columns: auto repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  align-items: center;
+}
+/* A day: its periods top to bottom, each a short bar the width of the day. */
+.neo-st-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 7px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-state) var(--ease-out);
+}
+.neo-st-day:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 0; }
+@media (hover: hover) {
+  .neo-st-day:not([data-on]):hover { background-color: var(--hover); }
+}
+.neo-st-day[data-on] { background-color: var(--pressed); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.neo-st-cell { display: block; height: 5px; border-radius: 2px; background: var(--neo-mark); }
+
+/* ---------- Events ---------- */
+
+/* An event's date in its row: the day's number, as the day list sets a figure, over its weekday. */
+.neo-st-daynum { font: 600 calc(15px * var(--ui-scale))/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .neo-st-skel { animation: none; }
+}
+}
+
+/* The term's attendance chart (attendance.tsx, TermChart): the weekly line takes the chart colours from class.css; the
+   term-so-far line is dashed in the secondary text colour, and the key draws each. */
+.neo-st-chart-term { stroke: var(--text-3); }
+.neo-st-chart-key { display: inline-block; width: 14px; height: 3px; border-radius: 999px; background: var(--neo-class, var(--neo)); }
+.neo-st-chart-key[data-term] { height: 0; border-top: 2px dashed var(--text-3); background: none; }
+

@@ -1,0 +1,213 @@
+/* The timetable's own pieces, beside Glaze: the class cards, the room tag, the grade donut, the day dock. Colours come
+   from Glaze's roles and the class hues in brand.css (data-hue); sizes from Glaze's scale where it has one. The cards'
+   corner radii are set from the components (motion corrects them while a card morphs). */
+
+/* Depth: a sheen from the top edge and a one-pixel highlight along it, the way Glaze's glass is lit, tuned per theme.
+   Paper is already white by day, so a white sheen can't show there: the day theme shades the lower part a breath
+   instead and sets the card on the page with a soft, short shadow. By night the lit top edge does it on its own. */
+[data-system="glaze"], .glaze {
+  --neo-edge-hi: rgb(255 255 255 / 0.95);
+  --neo-sheen: linear-gradient(to bottom, rgb(5 5 5 / 0) 30%, rgb(5 5 5 / 0.028));
+  --neo-drop: 0 1px 1px rgb(5 5 5 / 0.03), 0 6px 16px -8px rgb(5 5 5 / 0.12);
+}
+[data-theme="dark"][data-system="glaze"], [data-theme="dark"] [data-system="glaze"], [data-theme="dark"] .glaze, .glaze[data-theme="dark"] {
+  --neo-edge-hi: rgb(255 255 255 / 0.07);
+  --neo-sheen: linear-gradient(to bottom, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0) 55%);
+  --neo-drop: 0 0 #0000;
+}
+
+/* In Tailwind's components layer, so a utility on the same element (absolute, a margin) always wins over these. */
+@layer components {
+.neo-raised { box-shadow: inset 0 1px 0 var(--neo-edge-hi); }
+
+/* ---------- cards ---------- */
+
+/* The day is one combined block, as on the sketch: a rounded card holding every lesson, split by hairlines. Each
+   lesson is a cell in it (neo-cell); opened, the cell lifts out as its own card (neo-card). */
+.neo-stack {
+  background: var(--neo-sheen), var(--paper);
+  border: var(--line-width, 1px) solid var(--line);
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi), var(--neo-drop);
+  overflow: hidden;
+}
+/* Only the class on now (data-current) is filled with its colour, edge to edge and deepest at the top. The rest
+   carry their colour only in their accents: the glyph, the room's outline, the ring. */
+.neo-cell { position: relative; }
+.neo-cell > .neo-card { background-color: transparent; }
+.neo-card[data-current] {
+  background-image: linear-gradient(to bottom, var(--neo-class-wash-strong, transparent), var(--neo-class-wash-strong-end, transparent));
+}
+.neo-cell[data-top] { border-top: var(--line-width, 1px) solid var(--line); }
+.neo-cell[data-side] { border-inline-start: var(--line-width, 1px) solid var(--line); }
+.neo-notice { border-radius: 12px; }
+
+.neo-card {
+  position: relative;
+  background: var(--paper);
+  color: var(--text-1);
+  text-align: start;
+  overflow: hidden;
+}
+.neo-card-lifted {
+  background: var(--neo-sheen), var(--paper);
+  border: var(--line-width, 1px) solid var(--line);
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi), var(--neo-drop);
+}
+button.neo-card { cursor: pointer; display: block; }
+button.neo-card:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+@media (hover: hover) {
+  button.neo-card { transition: background-color var(--dur-state) var(--ease-out); }
+  button.neo-card:hover { background-color: var(--hover-row); }
+}
+/* A class already over today: still on the day, greyed out, its colour gone from the glyph and the room. */
+.neo-card[data-done] > * { opacity: 0.45; filter: grayscale(1); }
+
+/* The class names, in the house sans. */
+.neo-class-hero { font: 600 calc(26px * var(--ui-scale))/1.15 var(--font-sans); letter-spacing: -0.015em; }
+.neo-class-row { font: 600 calc(15px * var(--ui-scale))/1.3 var(--font-sans); }
+.neo-class-tile { font: 600 calc(14px * var(--ui-scale))/1.3 var(--font-sans); }
+.neo-teacher-hero { font: 500 calc(15px * var(--ui-scale))/1.35 var(--font-sans); }
+.neo-time-hero { font: 500 calc(15px * var(--ui-scale))/1.35 var(--font-sans); font-variant-numeric: tabular-nums; }
+.neo-tabular { font-variant-numeric: tabular-nums; }
+
+/* How far through the lesson on now is: a hairline bar along the cell's foot in the class's colour. */
+.neo-progress { position: absolute; inset-inline: 0; bottom: 0; height: 2px; background: var(--line-faint); }
+.neo-progress > * { height: 100%; background: var(--neo-class, var(--neo)); transform-origin: left center; }
+
+/* ---------- the room tag ---------- */
+
+.neo-room {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  flex-shrink: 0;
+  border: 1.5px solid var(--neo-class, var(--neo));
+  background: transparent;
+  color: var(--neo-class-text, var(--neo-text));
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1;
+}
+.neo-room[data-size="lg"] { font-size: calc(17px * var(--ui-scale)); padding: 4px 9px; border-radius: 8px; }
+.neo-room[data-size="md"] { font-size: calc(12px * var(--ui-scale)); padding: 2px 5px; border-radius: 6px; }
+.neo-room[data-size="sm"] { font-size: calc(11px * var(--ui-scale)); padding: 2px 5px; border-radius: 5px; }
+/* The room of the class on now is filled with its colour, white (or dark ink) on it; the others are outlined. */
+[data-current] .neo-room {
+  border-color: transparent;
+  background: var(--neo-class-fill, var(--neo));
+  color: var(--neo-class-on, #fff);
+}
+/* A room that changed today: the pill carries the swap glyph, in the pill's own ink. */
+/* The subject glyph in the class's colour (blue where there is no class, as in the grades list). */
+.neo-glyph { color: var(--neo-class-text, var(--neo-text)); }
+
+/* ---------- the grade donut ---------- */
+
+.neo-donut-track-hi { stop-color: color-mix(in oklab, var(--line), #000 22%); }
+.neo-donut-track-lo { stop-color: var(--line); }
+/* A ring is its class's colour, lit from above; Neo blue where it stands alone (the grades list). */
+.neo-donut-arc-hi { stop-color: color-mix(in oklab, var(--neo-class, var(--neo)), #fff 25%); }
+.neo-donut-arc-lo { stop-color: var(--neo-class, var(--neo)); }
+
+.neo-donut[data-tone="ok"] { --neo-tone: var(--ok); }
+.neo-donut[data-tone="neo"] { --neo-tone: var(--neo); }
+.neo-donut[data-tone="warn"] { --neo-tone: var(--warn); }
+.neo-donut[data-tone="fail"] { --neo-tone: var(--fail); }
+.neo-donut-value { font-family: var(--font-sans); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.neo-value-row { font-size: calc(10px * var(--ui-scale)); }
+.neo-value-hero { font-size: calc(17px * var(--ui-scale)); }
+
+/* ---------- the focused class ---------- */
+
+.neo-scrim {
+  background: color-mix(in oklab, var(--page) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+.neo-meter {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--field);
+  overflow: hidden;
+}
+.neo-meter > * {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class, var(--neo)), #fff 25%), var(--neo-class, var(--neo)));
+  transform-origin: left center;
+}
+
+/* ---------- the dock (day picker) and the top bar ---------- */
+
+.neo-dock {
+  background: color-mix(in oklab, var(--paper) 84%, transparent);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+.neo-topbar {
+  background: linear-gradient(to bottom, var(--page) 55%, color-mix(in oklab, var(--page) 0%, transparent));
+}
+/* The person in the corner: their photo, or their initials on Neo blue. */
+/* The person in the corner: their photo, or their initials on the grey field, lit along the top edge. */
+.neo-face {
+  background: var(--neo-sheen), var(--field);
+  color: var(--text-1);
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi);
+}
+/* Initials on a teacher's face, small enough for a 16px circle. */
+.neo-face-text { font-size: calc(8px * var(--ui-scale)); letter-spacing: 0.02em; }
+.size-5 > .neo-face-text { font-size: calc(9px * var(--ui-scale)); }
+
+.neo-day-name { font: 600 calc(14px * var(--ui-scale))/1.2 var(--font-sans); }
+
+/* The sync gauge in the corner: its bearings light in turn while a sync runs. */
+@keyframes neo-tick-run {
+  0%, 100% { opacity: 0.35; }
+  40% { opacity: 1; }
+}
+.neo-tick-running { animation: neo-tick-run 900ms var(--ease-out) infinite; }
+
+
+/* Room for a phone's notch and home bar. */
+.neo-safe-top { padding-top: max(env(safe-area-inset-top), 12px); }
+.neo-safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 18px); }
+.neo-profile-card { width: min(19rem, calc(100vw - 1.5rem)); }
+
+
+@media (prefers-reduced-motion: reduce) {
+  .neo-tick-running { animation: none; }
+}
+}
+
+/* Scrollbars never move anything: the page always keeps its scrollbar's room (also while a class is open and the page
+   is held still), and an overlay that scrolls keeps room on both edges, so what it centres stays centred. */
+html { scrollbar-gutter: stable; }
+.neo-scroll-stable { scrollbar-gutter: stable both-edges; }
+
+/* ---------- the list of classes under the day (features/home/class-list.tsx) ---------- */
+
+.neo-class-row { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-state) var(--ease-out); }
+.neo-class-row:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+@media (hover: hover) {
+  .neo-class-row:not(.neo-class-row-on):hover { background-color: var(--hover-row); }
+}
+/* The class open in the panel: pressed in, with a bar in its colour down its leading edge (as the day's cards mark it). */
+.neo-class-row-on { position: relative; background: var(--pressed); }
+.neo-class-row-on::before {
+  content: "";
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--neo-class, var(--neo));
+}
+.neo-fold-head { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.neo-fold-head:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 2px; }
+@media (hover: hover) { .neo-fold-head:hover { color: var(--text-1); } }
+
+/* Home's column: Tailwind's max-w-xl (576px), grown with the app's size knob so bigger type keeps its room. */
+.neo-column { max-width: calc(576px * var(--ui-scale)); }

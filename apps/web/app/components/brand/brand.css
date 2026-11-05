@@ -1,0 +1,274 @@
+/* Compass Neo's brand layer, beside Glaze. Five jobs only:
+   1. The logo's fixed colours: the white glints in the mark's glass, which stay white in both themes.
+   2. The motion. Everything moves on springs (--ease-spring, --ease-spring-soft here, and the motion library's springs
+      in lib/neo/motion.ts), and things morph instead of appearing:
+      - A part that exists before and after a change glides and resizes from its old box to its new one: the login's
+        mark flies into the app's corner, a class card grows into its focused view, the same class moves to its new
+        slot on another day.
+      - What is new comes into focus where it sits: from a soft blur and a hair smaller, to sharp. Nothing slides in
+        from off screen.
+      - The compass carries the sync: the needle and the dial's gauge on the login, the gauge in the app's corner.
+      All on the added --dur-* tokens, so reduced motion zeroes them with the rest.
+   3. The morph: state changes run as view transitions (lib/neo/morph.ts); the neo-vt-* names say which parts glide.
+   4. Class colours: each class wears one hue (data-hue, from convex/lib/match.ts), on its room tag and in its view.
+   5. The login's layout, which sizes itself to the dial.
+   Everything else is Glaze: surfaces, type and controls come from its tokens and components. The page colour comes
+   from Glaze too: <html> carries data-system="glaze", so it and the view-transition layers read the tokens. */
+
+/* The dial's animated arcs. Registered so they interpolate. --neo-arc's initial value draws the whole arc, so the
+   bezel shows whole whenever its animation is not running. */
+@property --neo-arc { syntax: "<angle>"; inherits: false; initial-value: 190deg; }
+@property --neo-sheen-at { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@property --neo-gauge { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+
+:root {
+  --neo-sweep: 150deg; /* the sync gauge: the part of the dial's upper arc it fills, centred on north */
+}
+
+/* ---------- the mark ---------- */
+
+.neo-dial-stop { stop-color: var(--neo); }
+.neo-glint-stop { stop-color: #fff; }
+.neo-needle-stop { stop-color: var(--needle); }
+
+/* The needle turns about the dial's centre. */
+.neo-needle { transform-box: view-box; transform-origin: 50% 50%; }
+
+/* The needle swings in from west of north and settles, the way a real one finds it. No overshoot: Glaze has no springs. */
+@keyframes neo-needle-find {
+  from { rotate: -72deg; }
+  to { rotate: 0deg; }
+}
+.neo-needle-find { animation: neo-needle-find var(--dur-needle) var(--ease-settle) both; }
+
+/* Signed in: one full turn back to north, then the app takes over. */
+@keyframes neo-needle-turn {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+.neo-needle-turn { animation: neo-needle-turn var(--dur-needle) var(--ease-settle) both; }
+
+/* Pointing at a heading (NeoMark's heading prop): each new heading is a swing on the long settle. While it waits on
+   something slow it trembles a degree or two either way, the way a real needle never quite sits still. */
+.neo-needle-follow { transition: rotate var(--dur-spring) var(--ease-spring); }
+/* Left alone, the needle is never quite still: it wanders a couple of degrees either way. */
+@keyframes neo-needle-wander {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2.5deg); }
+}
+.neo-needle-wander { animation: neo-needle-wander 6s ease-in-out infinite; }
+@keyframes neo-needle-tremble {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50% { transform: rotate(1.5deg); }
+}
+.neo-needle-tremble { animation: neo-needle-tremble calc(var(--dur-needle) * 1.4) ease-in-out infinite; }
+
+/* The bezel behind the mark: a faint ring of bearings. Only its upper arc shows: the linear mask fades the bearings
+   out before they reach the form. The conic mask is the drawing: --neo-arc degrees either side of north are shown,
+   so as it grows from 0 the ring draws itself out from the red north mark, clockwise and anticlockwise at once. */
+.neo-bezel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--bezel, 26rem); /* set by .neo-login, so the whole dial always fits the screen */
+  max-width: none; /* Glaze caps svg at its container; the bezel is meant to spill past the mark. */
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  rotate: var(--neo-turn, 0deg); /* turned a touch toward the pointer (login-screen.tsx), on the spring */
+  transition: rotate var(--dur-spring) var(--ease-spring);
+  pointer-events: none;
+  color: var(--line);
+  mask-image:
+    linear-gradient(to bottom, #000 30%, transparent 62%),
+    conic-gradient(
+      #000 calc(var(--neo-arc) - 10deg),
+      transparent var(--neo-arc) calc(360deg - var(--neo-arc)),
+      #000 calc(370deg - var(--neo-arc))
+    );
+  mask-composite: intersect;
+}
+@keyframes neo-dial-draw {
+  from { --neo-arc: 0deg; }
+  to { --neo-arc: 190deg; }
+}
+.neo-bezel-draw { animation: neo-dial-draw var(--dur-bezel) var(--ease-settle) both; }
+.neo-bezel-major { color: var(--line-control); }
+.neo-bezel-north { fill: var(--needle); }
+
+/* The sync gauge: the bearings again, in Neo blue, over the bezel. Shown from the west end of the arc to --neo-gauge
+   degrees past it, so it fills left to right as the sync goes, under the needle that points at its edge. */
+.neo-bezel-lit {
+  color: var(--neo);
+  mask-image:
+    linear-gradient(to bottom, #000 30%, transparent 62%),
+    conic-gradient(from calc(var(--neo-sweep) / -2), #000 var(--neo-gauge), transparent 0);
+  transition:
+    --neo-gauge calc(var(--dur-morph) * 1.5) var(--ease-settle),
+    opacity var(--dur-overlay) var(--ease-out);
+}
+
+/* While the compass waits, a light passes back and forth across the bearings: a band of brighter ticks, sweeping
+   from one end of the arc to the other. */
+.neo-bezel-sheen {
+  color: var(--text-3);
+  mask-image:
+    linear-gradient(to bottom, #000 30%, transparent 62%),
+    conic-gradient(from calc(var(--neo-sheen-at) - 16deg), transparent 0deg, #000 16deg, transparent 32deg);
+  mask-composite: intersect;
+  animation: neo-sheen 5s ease-in-out infinite alternate;
+  transition: opacity var(--dur-overlay) var(--ease-out);
+}
+@keyframes neo-sheen {
+  from { --neo-sheen-at: -96deg; }
+  to { --neo-sheen-at: 96deg; }
+}
+
+/* A wrong password: the form shakes its head once. Short and small, so it reads as "no" and not as a toy. */
+@keyframes neo-shake {
+  0%, 100% { translate: 0; }
+  20% { translate: -6px; }
+  40% { translate: 5px; }
+  60% { translate: -3px; }
+  80% { translate: 2px; }
+}
+.neo-shake { animation: neo-shake calc(var(--dur-state) * 2.5) var(--ease-out); }
+
+/* ---------- coming into focus ---------- */
+
+/* A screen arriving on a cold load: it comes into focus, from a soft blur and a hair smaller, on the soft spring.
+   Kept off any element that holds a position: fixed child (filter and scale would become its frame). */
+@keyframes neo-focus-in {
+  from { opacity: 0; filter: blur(var(--neo-blur, 14px)); scale: var(--neo-from-scale, 0.975); }
+  to { opacity: 1; filter: blur(0); scale: 1; }
+}
+@keyframes neo-focus-out {
+  from { opacity: 1; filter: blur(0); scale: 1; }
+  to { opacity: 0; filter: blur(var(--neo-blur, 14px)); scale: var(--neo-to-scale, 1.025); }
+}
+.neo-arrive { animation: neo-focus-in var(--dur-open) var(--ease-spring-soft) both; }
+
+/* Content that lands after its screen arrived (grades coming in, another semester). */
+.neo-uncover { --neo-blur: 8px; --neo-from-scale: 0.985; animation: neo-focus-in var(--dur-spring) var(--ease-spring-soft) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .neo-needle-find, .neo-needle-turn, .neo-needle-tremble, .neo-needle-wander, .neo-bezel-draw, .neo-bezel-sheen, .neo-shake, .neo-arrive, .neo-uncover { animation: none; }
+  .neo-bezel-sheen { opacity: 0; }
+  .neo-needle-follow, .neo-bezel-lit { transition: none; }
+}
+
+/* ---------- class colours ---------- */
+
+/* Twelve colours, one per class (convex/lib/match.ts gives each class its own), picked by hand rather than spaced
+   evenly at one lightness (which made yellow olive and orange brown). Each has its own fill lightness and the ink that
+   reads on it (dark on amber, lime, mint and sky; white on the rest), and an accent lightness for each theme, used for
+   anything drawn straight on the page: the glyph, a room's outline, the ring, the bars. */
+[data-hue="0"] { --neo-h: 25; --neo-c: 0.22; --neo-l: 0.63; --neo-ld: 0.72; --neo-ll: 0.56; --neo-on: #fff; } /* red */
+[data-hue="1"] { --neo-h: 50; --neo-c: 0.19; --neo-l: 0.7; --neo-ld: 0.77; --neo-ll: 0.58; --neo-on: #fff; } /* orange */
+[data-hue="2"] { --neo-h: 80; --neo-c: 0.17; --neo-l: 0.83; --neo-ld: 0.83; --neo-ll: 0.62; --neo-on: #1a1a1a; } /* amber */
+[data-hue="3"] { --neo-h: 125; --neo-c: 0.2; --neo-l: 0.86; --neo-ld: 0.86; --neo-ll: 0.6; --neo-on: #1a1a1a; } /* lime */
+[data-hue="4"] { --neo-h: 148; --neo-c: 0.19; --neo-l: 0.65; --neo-ld: 0.76; --neo-ll: 0.55; --neo-on: #fff; } /* green */
+[data-hue="5"] { --neo-h: 165; --neo-c: 0.13; --neo-l: 0.84; --neo-ld: 0.84; --neo-ll: 0.58; --neo-on: #1a1a1a; } /* mint */
+[data-hue="6"] { --neo-h: 190; --neo-c: 0.12; --neo-l: 0.62; --neo-ld: 0.76; --neo-ll: 0.52; --neo-on: #fff; } /* teal */
+[data-hue="7"] { --neo-h: 222; --neo-c: 0.13; --neo-l: 0.76; --neo-ld: 0.78; --neo-ll: 0.55; --neo-on: #1a1a1a; } /* sky */
+[data-hue="8"] { --neo-h: 258; --neo-c: 0.2; --neo-l: 0.6; --neo-ld: 0.72; --neo-ll: 0.52; --neo-on: #fff; } /* blue */
+[data-hue="9"] { --neo-h: 280; --neo-c: 0.2; --neo-l: 0.55; --neo-ld: 0.7; --neo-ll: 0.48; --neo-on: #fff; } /* indigo */
+[data-hue="10"] { --neo-h: 305; --neo-c: 0.22; --neo-l: 0.63; --neo-ld: 0.74; --neo-ll: 0.52; --neo-on: #fff; } /* violet */
+[data-hue="11"] { --neo-h: 345; --neo-c: 0.22; --neo-l: 0.66; --neo-ld: 0.75; --neo-ll: 0.55; --neo-on: #fff; } /* pink */
+[data-hue] {
+  --neo-class: oklch(var(--neo-ll) var(--neo-c) var(--neo-h));
+  --neo-class-text: oklch(var(--neo-ll) var(--neo-c) var(--neo-h));
+  --neo-class-tint: oklch(var(--neo-l) var(--neo-c) var(--neo-h) / 0.14);
+  --neo-class-line: oklch(var(--neo-ll) var(--neo-c) var(--neo-h) / 0.5);
+  /* The room pill of the class on now: filled with the colour, its own ink on it. */
+  --neo-class-fill: oklch(var(--neo-l) var(--neo-c) var(--neo-h));
+  --neo-class-on: var(--neo-on);
+  /* The class on now is filled with its colour, deepest at the top edge. */
+  --neo-class-wash-strong: oklch(var(--neo-l) var(--neo-c) var(--neo-h) / 0.5);
+  --neo-class-wash-strong-end: oklch(var(--neo-l) var(--neo-c) var(--neo-h) / 0.2);
+}
+[data-theme="dark"] [data-hue], [data-theme="dark"][data-hue] {
+  --neo-class: oklch(var(--neo-ld) var(--neo-c) var(--neo-h));
+  --neo-class-text: oklch(var(--neo-ld) var(--neo-c) var(--neo-h));
+  --neo-class-line: oklch(var(--neo-ld) var(--neo-c) var(--neo-h) / 0.55);
+  --neo-class-wash-strong: oklch(var(--neo-l) var(--neo-c) var(--neo-h) / 0.55);
+  --neo-class-wash-strong-end: oklch(var(--neo-l) var(--neo-c) var(--neo-h) / 0.22);
+}
+
+/* ---------- layout ---------- */
+
+/* The dial behind the login's mark sizes itself to the screen: as wide as the screen allows with a gutter each side,
+   no taller than a share of the screen's height (so a short screen keeps the form in view), between 15rem and 28rem.
+   svh, not vh: nothing jumps when a phone's address bar slides away. */
+.neo-login { --bezel: clamp(15rem, min(100vw - 2.5rem, 46svh), 28rem); }
+
+/* The login stage is anchored to the top, never centred: a step that grows pushes only what is under it, so the
+   mark and the wordmark never move. The mark's centre sits half a dial below the top edge, less half the 64px mark,
+   plus a 1rem margin, so the whole arc and its red north always show. */
+.neo-stage { padding-top: calc(var(--bezel) / 2 - 2rem + 1rem); }
+
+/* ---------- morph ---------- */
+
+/* The page stays live while a morph plays: presses reach the real controls, not the picture of them. */
+::view-transition { pointer-events: none; }
+
+/* Within a screen, what is not named cross-fades, short, nothing moving. */
+::view-transition-group(root) { animation-duration: var(--dur-overlay); }
+
+/* Named parts that are on both sides glide and resize from their old box to their new one, on the spring: the school
+   field becoming the school card, the main button moving under a new error, the mark flying between screens. */
+::view-transition-group(*) {
+  animation-duration: var(--dur-spring);
+  animation-timing-function: var(--ease-spring);
+}
+/* Inside a gliding part, its old and new look blend while it moves. */
+::view-transition-old(*),
+::view-transition-new(*) { animation-duration: calc(var(--dur-spring) * 0.6); }
+/* A named part on one side only dissolves in place. */
+::view-transition-old(*):only-child,
+::view-transition-new(*):only-child { animation-duration: var(--dur-overlay); }
+
+/* A step change (morph(..., "step")): the step's box resizes like a card on the spring while the old step goes out of
+   focus and the new one comes into it. Both pictures are pinned to the top of the box and cropped by it, never
+   scaled, so text never stretches as the box changes size. */
+html[data-morph="step"]::view-transition-group(neo-step) { overflow: clip; }
+html[data-morph="step"]::view-transition-old(neo-step),
+html[data-morph="step"]::view-transition-new(neo-step) {
+  block-size: 100%;
+  object-fit: none;
+  object-position: 50% 0;
+}
+html[data-morph="step"]::view-transition-old(neo-step) {
+  --neo-blur: 10px;
+  --neo-to-scale: 0.98;
+  animation: neo-focus-out calc(var(--dur-spring) * 0.5) var(--ease-out) both;
+}
+html[data-morph="step"]::view-transition-new(neo-step) {
+  --neo-blur: 10px;
+  --neo-from-scale: 1.02;
+  animation: neo-focus-in var(--dur-spring) var(--ease-spring-soft) both;
+}
+
+/* A change of route (morphRoute): the old screen goes out of focus and a touch larger, as if passed through, while the
+   new one comes into focus from a touch smaller. The mark is named on both screens, so it flies from the login's dial
+   to the app's corner (and back on signing out) on the spring, over both. */
+html[data-morph="route"]::view-transition-old(root) {
+  --neo-blur: 18px;
+  --neo-to-scale: 1.04;
+  animation: neo-focus-out calc(var(--dur-spring) * 0.7) var(--ease-out) both;
+}
+html[data-morph="route"]::view-transition-new(root) {
+  --neo-blur: 18px;
+  --neo-from-scale: 0.96;
+  animation: neo-focus-in var(--dur-open) var(--ease-spring-soft) both;
+}
+html[data-morph="route"]::view-transition-group(neo-mark) { animation-duration: var(--dur-open); z-index: 1; }
+
+/* The parts that carry across. Each name sits on one element at a time. The mark carries across screens too; the rest
+   only across the steps of one screen. */
+html[data-morph] .neo-vt-mark { view-transition-name: neo-mark; }
+html[data-morph="step"] .neo-vt-word { view-transition-name: neo-word; }
+html[data-morph="step"] .neo-vt-tag { view-transition-name: neo-tag; }
+html[data-morph="step"] .neo-vt-step { view-transition-name: neo-step; }
+html[data-morph="step"] .neo-vt-school { view-transition-name: neo-school; }
+html[data-morph="step"] .neo-vt-go { view-transition-name: neo-go; }
+html[data-morph="step"] .neo-vt-foot { view-transition-name: neo-foot; }

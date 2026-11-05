@@ -1,0 +1,15 @@
+{
+  "name": "@compassneo/connect",
+  "private": true,
+  "type": "module",
+  "description": "Fetch-only, read-only client for WA DET Connect (grades, classes, assignments). Signs in through the DET single sign-on with the same login as Compass. Endpoint shapes ported from the connect-sdk research (captured from the portal's own calls).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

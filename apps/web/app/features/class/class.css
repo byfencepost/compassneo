@@ -1,0 +1,379 @@
+/* The class panel: a class opened from its card, at the side of the day (it pushes the day aside on a wide screen and
+   covers the screen on a phone). Colours come from Glaze's roles and the class's hue (data-hue on the panel, from
+   brand.css), so everything in it wears the class's colour. */
+
+@layer components {
+/* The panel floats: inset from the window's edges, rounded, on the shell grey with a hairline ring and a lit top edge
+   (Glaze draws depth inside the shape; no shadow). On a phone it covers the screen but for a margin; from 760px it
+   sits at the right and the day moves aside for it (class-panel.tsx WIDE). */
+.neo-panel {
+  position: fixed;
+  z-index: 30;
+  top: max(env(safe-area-inset-top), 8px);
+  bottom: max(env(safe-area-inset-bottom), 8px);
+  left: 8px;
+  right: 8px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--neo-sheen), var(--shell);
+  color: var(--text-1);
+  border: var(--line-width, 1px) solid var(--line);
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi), var(--neo-drop);
+}
+/* An expanded panel (a class's Files) springs to its new width on the same spring as the day beside it. */
+.neo-panel-sized { transition: width var(--dur-spring) var(--ease-spring); }
+@media (prefers-reduced-motion: reduce) { .neo-panel-sized { transition: none; } }
+@media (min-width: 760px) {
+  .neo-panel { top: 12px; bottom: 12px; right: 12px; left: auto; }
+}
+/* Each section's scroll: no scrollbar, so none takes room either. A reserved gutter (classic scrollbars, as on
+   Windows) pushed every card 10px in from the switcher above it. The wheel, trackpad and touch still scroll it. */
+.neo-panel-scroll { scrollbar-width: none; }
+.neo-panel-scroll::-webkit-scrollbar { display: none; }
+
+/* The class's colour washes down the top of the panel only, behind its name, and is gone by the content. */
+.neo-panel-top {
+  background-image: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class) 30%, transparent), color-mix(in oklab, var(--neo-class) 0%, transparent));
+  box-shadow: inset 0 -1px 0 var(--line-faint);
+}
+
+/* ---------- loading: the shape of what is coming ---------- */
+
+@keyframes neo-skel-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.neo-skel {
+  display: block;
+  border-radius: 6px;
+  background: var(--field);
+  animation: neo-skel-pulse 1.4s var(--ease-out) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .neo-skel { animation: none; }
+}
+
+/* The lesson's time and the grade: the two figures the panel leads with. */
+.neo-lesson-time { font: 600 calc(22px * var(--ui-scale))/1.2 var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.neo-grade-big { font: 600 calc(22px * var(--ui-scale))/1.2 var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+
+/* A mark that came in this week: a small outlined tag in Neo blue. */
+.neo-new {
+  font: 600 calc(10px * var(--ui-scale))/1 var(--font-sans);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--neo-text);
+  border: 1px solid color-mix(in oklab, var(--neo) 60%, transparent);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+/* A row in a card that opens to show more. */
+.neo-row-button { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-state) var(--ease-out); }
+.neo-row-button:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+@media (hover: hover) {
+  .neo-row-button:hover { background-color: var(--hover-row); }
+}
+
+/* A section's own glyph, in the class's colour. */
+.neo-section-glyph { color: var(--neo-class-text, var(--neo-text)); }
+
+/* The class picked on the day: the row pressed in (Glaze's selected-row grey, edge to edge, no ring and no tint) with a
+   short bar in the class's colour at its start. Behind the card's content (isolate keeps it in the card), so a
+   finished class's greying never reaches the bar. */
+.neo-card[data-selected] { isolation: isolate; }
+.neo-card[data-selected]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--pressed);
+  pointer-events: none;
+}
+.neo-card[data-selected]::after {
+  content: "";
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--neo-class);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .neo-cell > .neo-card[data-selected]:hover { background-color: transparent; }
+}
+
+/* ---------- the section switcher: every section named, the open one on a thumb in the class's colour ---------- */
+
+/* The track's corners match the cards' (12px); the tab and its thumb sit 4px in (p-1), so theirs are 12 - 4. */
+.neo-tabs {
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--page) 55%, transparent);
+  border: var(--line-width, 1px) solid var(--line-faint);
+}
+.neo-tab {
+  border-radius: 8px;
+  color: var(--text-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur-state) var(--ease-out), background-color var(--dur-state) var(--ease-out);
+}
+@media (hover: hover) {
+  .neo-tab:not([data-on]):hover { color: var(--text-1); background-color: var(--hover); }
+}
+.neo-tab[data-on] { color: var(--neo-class-on, #fff); }
+.neo-tab-thumb {
+  border-radius: 8px;
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class-fill, var(--neo)), #fff 14%), var(--neo-class-fill, var(--neo)));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+/* ---------- the chart's legend ---------- */
+
+.neo-part-earned {
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class, var(--neo)), #fff 25%), var(--neo-class, var(--neo)));
+}
+.neo-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+/* ---------- the history chart ---------- */
+
+.neo-chart-line { stroke: var(--neo-class, var(--neo)); }
+.neo-chart-area-hi { stop-color: var(--neo-class, var(--neo)); stop-opacity: 0.34; }
+.neo-chart-area-lo { stop-color: var(--neo-class, var(--neo)); stop-opacity: 0; }
+.neo-chart-grid { stroke: var(--line); }
+.neo-chart-guide { background: var(--line-strong); }
+.neo-chart-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 999px;
+  background: var(--neo-class, var(--neo));
+  border: 2px solid var(--page);
+  transition: scale var(--dur-state) var(--ease-out);
+}
+.neo-chart-dot[data-on] { scale: 1.45; }
+/* Each task's own mark, hollow, beside the running grade. */
+.neo-chart-own {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 999px;
+  border: 1.5px solid var(--text-3);
+  background: var(--page);
+}
+.neo-chart-tip {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* A link in a lesson plan: Neo blue, underlined, so it reads as one in plain text. */
+.neo-link { color: var(--neo-text); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+@media (hover: hover) {
+  .neo-link:hover { text-decoration-thickness: 2px; }
+}
+
+/* Text that is cut to a few lines until it is opened. */
+.neo-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.neo-pre-line { white-space: pre-line; }
+
+/* ---------- the switcher, roomy (tab-switcher.tsx) ---------- */
+
+/* The track's own scroller: tabs keep their padding and gaps; when they do not fit, it scrolls with soft edges. Its
+   4px of padding holds a tab's focus ring inside the clip. */
+.neo-tabs-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-radius: inherit; }
+.neo-tabs-scroll::-webkit-scrollbar { display: none; }
+.neo-tabs-scroll[data-bare] .neo-tab-glyph { display: none; }
+
+/* A row that scrolls sideways fades out at an end with more past it (useEdgeFade in kit.tsx sets the marks). */
+.neo-fade-x { --fade: 28px; }
+.neo-fade-x[data-fade-start] { mask-image: linear-gradient(to right, transparent, #000 var(--fade)); }
+.neo-fade-x[data-fade-end] { mask-image: linear-gradient(to left, transparent, #000 var(--fade)); }
+.neo-fade-x[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+}
+
+/* ---------- shared rows (kit.tsx) ---------- */
+
+/* A file or a link as a row: the name is the link, its press area covers the row; the download button sits above. */
+.neo-file { -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-state) var(--ease-out); }
+.neo-file-link::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-tag); }
+.neo-file-link:focus-visible { outline: none; }
+.neo-file-link:focus-visible::after { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+.neo-file > [data-slot="button"] { position: relative; z-index: 1; }
+@media (hover: hover) {
+  .neo-file:has(.neo-file-link):hover { background-color: var(--hover-row); }
+}
+
+/* A site's own icon, on a small white plate so a dark icon shows on the dark theme too. */
+.neo-favicon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+.neo-favicon > img { display: block; }
+.neo-favicon[data-size="32"] { border-radius: 11px; padding: 7px; }
+
+/* ---------- the library (files.tsx) ---------- */
+
+/* Things as rows: one column in the narrow panel, two to a line once there is room (Files expanded). A page that
+   opens spans the line, so its text reads at a sensible measure. */
+.neo-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); column-gap: 8px; }
+.neo-span-all { grid-column: 1 / -1; }
+
+/* A list with a video in it gives every row a thumbnail's room, so the names line up. */
+.neo-lead { display: grid; flex-shrink: 0; place-items: center; width: 48px; }
+/* A YouTube video's own thumbnail, small, with a play mark on it. */
+.neo-thumb { position: relative; display: block; width: 48px; height: 27px; border-radius: 5px; overflow: hidden; background: var(--field); }
+.neo-thumb > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.neo-thumb > span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+
+/* A file's box in Select: an outline, filled with the class's colour (and a check) once picked. */
+.neo-check {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--line-strong);
+  color: var(--neo-class-on, #fff);
+  transition: background-color var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
+}
+.neo-check[data-on] { background: var(--neo-class-fill, var(--neo)); border-color: var(--neo-class-fill, var(--neo)); }
+
+/* ---------- Work (work.tsx) ---------- */
+
+/* Where a piece of work stands: a glyph and a word on the status's tint. To do wears the class's colour. */
+.neo-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  font: 500 calc(12px * var(--ui-scale))/1 var(--font-sans);
+  white-space: nowrap;
+}
+.neo-chip[data-tone="ok"] { background: var(--ok-tint); color: var(--ok-text); }
+.neo-chip[data-tone="warn"] { background: var(--warn-tint); color: var(--warn-text); }
+.neo-chip[data-tone="fail"] { background: var(--fail-tint); color: var(--fail-text); }
+.neo-chip[data-tone="todo"] {
+  background: var(--neo-class-tint, color-mix(in oklab, var(--neo) 14%, transparent));
+  color: var(--neo-class-text, var(--neo-text));
+}
+.neo-chip[data-tone="muted"] { background: var(--field); color: var(--text-2); }
+
+/* A piece of work's name at the top of its page: a heading, not a hero. */
+.neo-work-title { font: 600 calc(18px * var(--ui-scale))/1.3 var(--font-sans); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+
+/* Where a file is dropped: a dashed outline that takes the class's colour while a file is over it. */
+.neo-drop {
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 10px;
+  transition: border-color var(--dur-state) var(--ease-out), background-color var(--dur-state) var(--ease-out);
+}
+.neo-drop[data-over] {
+  border-color: var(--neo-class, var(--neo));
+  background: var(--neo-class-tint, color-mix(in oklab, var(--neo) 10%, transparent));
+}
+/* The file about to go in. */
+.neo-picked { background: var(--field); border-radius: 10px; }
+
+/* Handing in, while it goes: a segment sweeping along the track (Glaze's indeterminate progress), in the class's colour. */
+.neo-sweep { position: relative; height: var(--progress-bar); border-radius: 999px; background: var(--field); overflow: hidden; }
+.neo-sweep > span {
+  position: absolute;
+  inset-block: 0;
+  width: var(--progress-sweep);
+  border-radius: inherit;
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--neo-class, var(--neo)), #fff 25%), var(--neo-class, var(--neo)));
+  animation: glaze-sweep var(--dur-sweep) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .neo-sweep > span { animation: none; inset-inline-start: 0; width: 50%; }
+}
+/* Handed in: the ring that goes out from the check as it lands. */
+.neo-done-ring { border: 2px solid var(--ok); border-radius: 999px; }
+
+/* ---------- classmates (people.tsx) ---------- */
+
+.neo-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 16px 6px; }
+/* A face: the photo, or the initials on the person's own colour, lit along the top edge like the teachers'. */
+.neo-person {
+  background: var(--neo-class-tint);
+  color: var(--neo-class-text);
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi);
+  font: 600 calc(15px * var(--ui-scale))/1 var(--font-sans);
+}
+.neo-person-sm { font-size: calc(11px * var(--ui-scale)); }
+/* The student: a ring in the class's colour around their face, and "You" under it. */
+.neo-person-ring { display: inline-grid; border-radius: 999px; }
+.neo-person-ring[data-me] { outline: 2px solid var(--neo-class, var(--neo)); outline-offset: 2px; }
+.neo-you { font: 600 calc(12px * var(--ui-scale))/1.35 var(--font-sans); color: var(--neo-class-text, var(--neo-text)); }
+}
+
+/* Where the semester could finish: the grey track is 0–100%, the band is the reachable part, the dot the average kept. */
+.neo-range { position: relative; height: 8px; border-radius: 999px; background: var(--field); }
+.neo-range-band {
+  position: absolute; inset-block: 0; left: var(--from); width: calc(var(--to) - var(--from));
+  border-radius: inherit;
+  background: linear-gradient(to right, color-mix(in oklab, var(--neo) 45%, transparent), var(--neo));
+}
+.neo-range-at {
+  position: absolute; top: 50%; left: var(--at); width: 14px; height: 14px; translate: -50% -50%;
+  border-radius: 999px; background: var(--paper); border: 3px solid var(--neo);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+
+/* Where the grade sits in the class: a badge in the rank's tone, and the class as four equal quarters, lowest to
+   highest, filled up to the student's with a dot at their percentile. */
+.neo-rank { --rank: var(--text-3); }
+.neo-rank[data-tone="ok"] { --rank: var(--ok-text); }
+.neo-rank[data-tone="todo"] { --rank: var(--neo-class-text, var(--neo-text)); }
+.neo-rank[data-tone="warn"] { --rank: var(--warn-text); }
+.neo-rank-badge { color: var(--rank); background: color-mix(in oklab, var(--rank) 16%, transparent); }
+.neo-rank-track { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; align-items: center; height: 14px; }
+.neo-rank-quarter { height: 6px; border-radius: 999px; background: var(--field); }
+/* The slim one on an assessment's row. */
+.neo-rank-track[data-compact] { gap: 3px; height: 10px; }
+.neo-rank-track[data-compact] .neo-rank-quarter { height: 4px; }
+.neo-rank-track[data-compact] .neo-rank-dot { width: 10px; height: 10px; border-width: 2px; left: clamp(5px, var(--p), calc(100% - 5px)); }
+.neo-rank-quarter[data-on] { background: color-mix(in oklab, var(--rank) 38%, transparent); }
+.neo-rank-quarter[data-mine] { background: var(--rank); }
+.neo-rank-dot {
+  position: absolute; top: 50%; left: clamp(7px, var(--p), calc(100% - 7px)); width: 14px; height: 14px; translate: -50% -50%;
+  border-radius: 999px; background: var(--paper); border: 3px solid var(--rank);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.22);
+}
+
+/* ---------- small states ---------- */
+
+/* A list's row picked (shown beside it, or open): pressed in, as the day's picked class is. */
+.neo-row-button[data-on] { background-color: var(--pressed); }
+
+/* A state as its glyph and word in its colour alone, without the tint. */
+.neo-chip[data-plain] { height: auto; padding: 0; background: none; }

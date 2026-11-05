@@ -1,0 +1,13 @@
+{
+  "name": "compassneo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "bun run --filter @compassneo/web dev",
+    "dev:backend": "bun run --filter @compassneo/backend dev",
+    "build": "bun run --filter @compassneo/web build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "bun run --filter @compassneo/web lint"
+  }
+}

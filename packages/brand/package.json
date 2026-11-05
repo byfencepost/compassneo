@@ -1,0 +1,10 @@
+{
+  "name": "@compassneo/brand",
+  "private": true,
+  "type": "module",
+  "description": "Compass Neo's logo files and brand colours, for every client: web, and later the phone and watch apps.",
+  "exports": {
+    ".": "./colors.ts",
+    "./logo/*": "./logo/*"
+  }
+}
