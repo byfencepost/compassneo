@@ -36,9 +36,18 @@ export function subjectIcon(...names: Array<string | null | undefined>): GlazeIc
 }
 
 /**
- * The main subjects, the ones home shows a grade for (the rest wait on the Grades page): English, Maths, Science and
- * HASS, by what a card calls the class ("Maths", "HASS", "Mathematics Methods", "English Literature"). Read from the
- * start of the name, so STEM, Computer Science and the like are not taken for them.
+ * The main subjects, the only ones home shows a grade for (the rest wait on the Grades page): Maths, English, Science
+ * and HASS, in that order, read from the class's name and its Connect subject ("Maths", "Mathematics", "English
+ * Literature", "Humanities and Social Sciences"). Computing and STEM are never one, whatever their names say.
  */
-const MAIN = /^(english|literature|maths?|mathematics|science|hass|humanities)/i;
-export const isMainSubject = (name: string) => MAIN.test(name.trim());
+const NOT_MAIN = /(comput|programming|coding|digital|stem|ict)/i;
+const MAIN: RegExp[] = [/math(s|ematics)?/i, /(english|literature)/i, /science/i, /(hass|humanities)/i];
+
+/** Where a subject sits among the main ones (0 Maths, 1 English, 2 Science, 3 HASS), or -1 for any other. */
+export function mainSubject(...names: Array<string | null | undefined>): number {
+  const text = names.filter(Boolean).join(" ");
+  if (NOT_MAIN.test(text)) return -1;
+  // HASS before Science: "Humanities and Social Sciences" is HASS.
+  if (MAIN[3]!.test(text)) return 3;
+  return MAIN.findIndex(re => re.test(text));
+}

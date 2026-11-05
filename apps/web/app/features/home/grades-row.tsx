@@ -1,11 +1,11 @@
 import { useOverviewGrades } from "@/lib/neo/overview";
-import { isMainSubject } from "@/lib/neo/subjects";
+import { mainSubject } from "@/lib/neo/subjects";
 import { GradeRings } from "./grade-rings";
 
 /**
- * Grades on home, above the to-do list: one row, always there and never folded, of the main subjects' grades (English,
- * Maths, Science, HASS; lib/neo/subjects.ts) each as its own ring (grade-rings.tsx), centred, and a last ring saying how
- * many more there are. A student with none of those named that way gets their first four instead. Pressing it opens Grades in the side panel (features/student/grades.tsx), where every
+ * Grades on home, above the to-do list: one row, always there and never folded, of the main subjects' grades (Maths,
+ * English, Science, HASS, in that order; lib/neo/subjects.ts), each as its own ring (grade-rings.tsx), centred, and a
+ * last ring saying how many more there are. Only those four ever show here; every subject is on the Grades page. Pressing it opens Grades in the side panel (features/student/grades.tsx), where every
  * grade is gone through and every subject has a page of its own. A school without Connect has no row.
  */
 export function GradesRow({ token, day, open, onOpen }: { token: string; day: string; open: boolean; onOpen: () => void }) {
@@ -13,8 +13,11 @@ export function GradesRow({ token, day, open, onOpen }: { token: string; day: st
   if (data === null || data?.status === "none") return null;
   if (data?.status === "ready" && !data.subjects.length) return null;
   const ready = data?.status === "ready" ? data : null;
-  const main = ready ? ready.subjects.filter(s => isMainSubject(s.name)) : [];
-  const shown = ready ? (main.length ? main : ready.subjects.slice(0, 4)) : [];
+  const shown = (ready?.subjects ?? [])
+    .map(s => ({ s, at: mainSubject(s.name, s.subject) }))
+    .filter(x => x.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map(x => x.s);
   const more = ready ? ready.subjects.length - shown.length : 0;
   const note = data?.status === "loading" ? "Getting your grades from Connect" : data?.status === "unavailable" ? data.reason : null;
 
