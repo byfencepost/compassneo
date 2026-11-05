@@ -11,14 +11,17 @@ import { Donut } from "@/features/timetable/donut";
  * width, its ring as big as that allows (up to 48px). Each is in its class's colour (the colour it has on the
  * timetable), the ring, the glyph in the middle and the score under it alike, so a subject reads the same everywhere.
  * A subject with nothing marked yet has an empty dashed ring and a dash. With onPick each ring is a button (the Grades
- * page); without, the rings are only a picture inside whatever is pressed around them (the row on home).
+ * page); without, the rings are only a picture inside whatever is pressed around them (the row on home). With more, a
+ * last ring says how many subjects are left out ("+5", "more"), dashed like a ring with nothing in it.
  */
 export function GradeRings({
   subjects,
   onPick,
+  more = 0,
   className,
 }: {
   subjects: OverviewSubject[];
+  more?: number;
   onPick?: (s: OverviewSubject, el: HTMLElement) => void;
   className?: string;
 }) {
@@ -28,7 +31,7 @@ export function GradeRings({
       role={onPick ? "list" : undefined}
       aria-label={onPick ? "Grades by subject" : undefined}
       // eslint-disable-next-line glaze/no-inline-style -- as many equal columns as there are subjects, so they keep to one row
-      style={{ "--rings": subjects.length } as CSSProperties}
+      style={{ "--rings": subjects.length + (more > 0 ? 1 : 0) } as CSSProperties}
       className={cn("neo-rings w-full", className)}
     >
       {subjects.map(s => (
@@ -51,6 +54,18 @@ export function GradeRings({
           )}
         </span>
       ))}
+      {more > 0 && (
+        <span role={onPick ? "listitem" : undefined} className="flex min-w-0 justify-center">
+          <span className="flex w-full max-w-16 min-w-0 flex-col items-center gap-1 py-1.5">
+            <span className="sr-only">And {more} more {more === 1 ? "subject" : "subjects"}.</span>
+            <span aria-hidden className="relative grid aspect-square w-full max-w-12 place-items-center">
+              <span className="neo-ring-empty" />
+              <span className="neo-tabular relative type-caption font-semibold text-text-2">+{more}</span>
+            </span>
+            <span aria-hidden className="type-caption font-semibold text-text-3">more</span>
+          </span>
+        </span>
+      )}
     </span>
   );
 }

@@ -34,3 +34,11 @@ export function subjectIcon(...names: Array<string | null | undefined>): GlazeIc
   const text = names.filter(Boolean).join(" ");
   return RULES.find(([re]) => re.test(text))?.[1] ?? SubjectOther;
 }
+
+/**
+ * The main subjects, the ones home shows a grade for (the rest wait on the Grades page): English, Maths, Science and
+ * HASS, by what a card calls the class ("Maths", "HASS", "Mathematics Methods", "English Literature"). Read from the
+ * start of the name, so STEM, Computer Science and the like are not taken for them.
+ */
+const MAIN = /^(english|literature|maths?|mathematics|science|hass|humanities)/i;
+export const isMainSubject = (name: string) => MAIN.test(name.trim());
