@@ -12,7 +12,7 @@ import type { ClassTab } from "@/features/class/class-panel";
 import { GradesPage as ClassGradesPage } from "@/features/class/pages";
 import { Block, RankChip } from "@/features/class/sections";
 import { toneText } from "@/features/class/grade-history";
-import { GradeRings, TrendMark } from "@/features/home/grade-rings";
+import { TrendMark } from "@/features/home/grade-rings";
 import { Section } from "./parts";
 
 /** Opens a class in the panel on a section, in place of this page. */
@@ -75,7 +75,6 @@ function Overview({ data, zone, today, now, onPick }: { data: ReadyGrades; zone:
     <>
       {data.subjects.length > 0 && (
         <div className="flex flex-col items-center gap-2">
-          <GradeRings subjects={data.subjects} onPick={s => onPick(s.key)} />
           <p className="neo-tabular flex items-center gap-2 text-center type-caption text-text-3">
             Semester {data.semester} · {a.marked} of {a.total} marked
             {moved(a.trend) && <TrendMark trend={a.trend} now={now} />}

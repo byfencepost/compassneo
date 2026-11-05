@@ -7,55 +7,29 @@ import type { GradeTrend, OverviewSubject } from "@/lib/neo/overview";
 import { Donut } from "@/features/timetable/donut";
 
 /**
- * Every subject's grade as its own ring, in one row, centred, however many there are: each takes an equal share of the
- * width, its ring as big as that allows (up to 48px). Each is in its class's colour (the colour it has on the
- * timetable), the ring, the glyph in the middle and the score under it alike, so a subject reads the same everywhere.
- * A subject with nothing marked yet has an empty dashed ring and a dash. With onPick each ring is a button (the Grades
- * page); without, the rings are only a picture inside whatever is pressed around them (the row on home). With more, a
- * last ring says how many subjects are left out ("+5", "more"), dashed like a ring with nothing in it.
+ * The main subjects' grades as rings, in one row, centred (the row on home, which is a button itself, so these are only
+ * a picture inside it): each takes an equal share of the width, its ring as big as that allows (up to 48px). Each is in
+ * its class's colour (the colour it has on the timetable), the ring, the glyph in the middle and the score under it
+ * alike, so a subject reads the same everywhere. A subject with nothing marked yet has an empty dashed ring and a dash.
+ * With more, a last ring says how many subjects are left out ("+5", "more"), dashed like a ring with nothing in it.
  */
-export function GradeRings({
-  subjects,
-  onPick,
-  more = 0,
-  className,
-}: {
-  subjects: OverviewSubject[];
-  more?: number;
-  onPick?: (s: OverviewSubject, el: HTMLElement) => void;
-  className?: string;
-}) {
-  // A list of buttons on the page; inside the row on home (a button itself), plain text a screen reader reads through.
+export function GradeRings({ subjects, more = 0, className }: { subjects: OverviewSubject[]; more?: number; className?: string }) {
   return (
     <span
-      role={onPick ? "list" : undefined}
-      aria-label={onPick ? "Grades by subject" : undefined}
-      // eslint-disable-next-line glaze/no-inline-style -- as many equal columns as there are subjects, so they keep to one row
+      // eslint-disable-next-line glaze/no-inline-style -- as many equal columns as there are rings, so they keep to one row
       style={{ "--rings": subjects.length + (more > 0 ? 1 : 0) } as CSSProperties}
       className={cn("neo-rings w-full", className)}
     >
       {subjects.map(s => (
-        <span role={onPick ? "listitem" : undefined} key={s.key} data-hue={s.hue ?? undefined} className="flex min-w-0 justify-center">
-          {onPick ? (
-            // eslint-disable-next-line glaze/no-native-control -- a ring and its score as one target: a Glaze Button would draw a pill round the ring
-            <button
-              type="button"
-              aria-label={label(s)}
-              onClick={e => onPick(s, e.currentTarget)}
-              className="neo-row-button flex w-full max-w-16 min-w-0 flex-col items-center gap-1 rounded-tag py-1.5"
-            >
-              <Ring s={s} />
-            </button>
-          ) : (
-            <span className="flex w-full max-w-16 min-w-0 flex-col items-center gap-1 py-1.5">
-              <span className="sr-only">{label(s)}. </span>
-              <Ring s={s} />
-            </span>
-          )}
+        <span key={s.key} data-hue={s.hue ?? undefined} className="flex min-w-0 justify-center">
+          <span className="flex w-full max-w-16 min-w-0 flex-col items-center gap-1 py-1.5">
+            <span className="sr-only">{label(s)}. </span>
+            <Ring s={s} />
+          </span>
         </span>
       ))}
       {more > 0 && (
-        <span role={onPick ? "listitem" : undefined} className="flex min-w-0 justify-center">
+        <span className="flex min-w-0 justify-center">
           <span className="flex w-full max-w-16 min-w-0 flex-col items-center gap-1 py-1.5">
             <span className="sr-only">And {more} more {more === 1 ? "subject" : "subjects"}.</span>
             <span aria-hidden className="relative grid aspect-square w-full max-w-12 place-items-center">

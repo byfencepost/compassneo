@@ -40,8 +40,8 @@ export function subjectIcon(...names: Array<string | null | undefined>): GlazeIc
  * and HASS, in that order, read from the class's name and its Connect subject ("Maths", "Mathematics", "English
  * Literature", "Humanities and Social Sciences"). Computing and STEM are never one, whatever their names say.
  */
-const NOT_MAIN = /(comput|programming|coding|digital|stem|ict)/i;
-const MAIN: RegExp[] = [/math(s|ematics)?/i, /(english|literature)/i, /science/i, /(hass|humanities)/i];
+const NOT_MAIN = /(comput|programming|coding|digital|\bstem\b|\bict\b)/i;
+const MAIN: RegExp[] = [/\bmath(s|ematics)?\b/i, /\b(english|literature)\b/i, /\bscience\b/i, /\b(hass|humanities)\b/i];
 
 /** Where a subject sits among the main ones (0 Maths, 1 English, 2 Science, 3 HASS), or -1 for any other. */
 export function mainSubject(...names: Array<string | null | undefined>): number {
