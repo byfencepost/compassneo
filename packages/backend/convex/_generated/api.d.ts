@@ -9,6 +9,8 @@
  */
 
 import type * as accounts from "../accounts.js";
+import type * as ai from "../ai.js";
+import type * as announcements from "../announcements.js";
 import type * as attendance from "../attendance.js";
 import type * as auth from "../auth.js";
 import type * as cache from "../cache.js";
@@ -20,6 +22,7 @@ import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as learners from "../learners.js";
+import type * as lib_assemblies from "../lib/assemblies.js";
 import type * as lib_compass from "../lib/compass.js";
 import type * as lib_connect from "../lib/connect.js";
 import type * as lib_crypto from "../lib/crypto.js";
@@ -27,9 +30,13 @@ import type * as lib_days from "../lib/days.js";
 import type * as lib_history from "../lib/history.js";
 import type * as lib_links from "../lib/links.js";
 import type * as lib_match from "../lib/match.js";
+import type * as lib_median from "../lib/median.js";
 import type * as lib_plan from "../lib/plan.js";
 import type * as lib_target from "../lib/target.js";
+import type * as median from "../median.js";
+import type * as overview from "../overview.js";
 import type * as plans from "../plans.js";
+import type * as pools from "../pools.js";
 import type * as resources from "../resources.js";
 import type * as schools from "../schools.js";
 import type * as sync from "../sync.js";
@@ -45,6 +52,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
+  ai: typeof ai;
+  announcements: typeof announcements;
   attendance: typeof attendance;
   auth: typeof auth;
   cache: typeof cache;
@@ -56,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   http: typeof http;
   learners: typeof learners;
+  "lib/assemblies": typeof lib_assemblies;
   "lib/compass": typeof lib_compass;
   "lib/connect": typeof lib_connect;
   "lib/crypto": typeof lib_crypto;
@@ -63,9 +73,13 @@ declare const fullApi: ApiFromModules<{
   "lib/history": typeof lib_history;
   "lib/links": typeof lib_links;
   "lib/match": typeof lib_match;
+  "lib/median": typeof lib_median;
   "lib/plan": typeof lib_plan;
   "lib/target": typeof lib_target;
+  median: typeof median;
+  overview: typeof overview;
   plans: typeof plans;
+  pools: typeof pools;
   resources: typeof resources;
   schools: typeof schools;
   sync: typeof sync;
@@ -100,4 +114,8 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  syncPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"syncPool">;
+  backgroundPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"backgroundPool">;
+  aiPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"aiPool">;
+};

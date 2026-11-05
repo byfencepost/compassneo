@@ -26,21 +26,42 @@ export async function storedLogin(account: Doc<"accounts">): Promise<Login | nul
   return unseal<Login>("CREDENTIALS_KEY", account.sealedLogin, account.key);
 }
 
-/** What to do when a stored login can no longer sign in: forget the account, so every device is asked again. */
+/**
+ * What to do when a stored login can no longer sign in: forget the account, so every device is asked again. Often no
+ * device is asking (a background sync), so each is left the reason as a farewell (accounts.ts) to show when it looks.
+ */
 export async function loginRejected(ctx: ActionCtx, account: Doc<"accounts">): Promise<Problem> {
-  await ctx.runMutation(internal.accounts.forget, { accountId: account._id });
-  return { ok: false, code: "password-changed", message: "Your Compass password has changed. Sign in again." };
+  const farewell = { code: "password-changed", message: "Your Compass password has changed. Sign in again." } as const;
+  await ctx.runMutation(internal.accounts.forget, { accountId: account._id, farewell });
+  return { ok: false, ...farewell };
+}
+
+/**
+ * A sign-in with the stored login, where a refusal is asked twice before it is believed. Forgetting an account deletes
+ * everything kept for it, and background syncs now sign in again many times a day, so one odd refusal from a Compass
+ * having a bad minute must not cost the account. Twice is still far short of Compass's lockout after a real password
+ * change, and the account is forgotten on the second, so it is never asked again.
+ */
+async function signInConfirmed(slug: string, login: Login) {
+  try {
+    return await signIn({ slug, ...login });
+  } catch (e) {
+    if (!(e instanceof CompassError && e.code === "bad-credentials")) throw e;
+    await new Promise(resolve => setTimeout(resolve, 2_500 + Math.random() * 1_500));
+    return signIn({ slug, ...login });
+  }
 }
 
 async function signInAgain(ctx: ActionCtx, account: Doc<"accounts">): Promise<CompassSession | Problem> {
   const login = await storedLogin(account);
   if (!login) {
     // Signed in before logins were kept: there is nothing to sign in again with.
-    await ctx.runMutation(internal.accounts.forget, { accountId: account._id });
-    return { ok: false, code: "signed-out", message: "Compass ended your session. Sign in again." };
+    const farewell = { code: "signed-out", message: "Compass ended your session. Sign in again." } as const;
+    await ctx.runMutation(internal.accounts.forget, { accountId: account._id, farewell });
+    return { ok: false, ...farewell };
   }
   try {
-    const session = await signIn({ slug: account.slug, ...login });
+    const session = await signInConfirmed(account.slug, login);
     await ctx.runMutation(internal.accounts.saveCompass, {
       accountId: account._id,
       sealedCompass: await seal("SESSION_KEY", session.cookies, account.key),

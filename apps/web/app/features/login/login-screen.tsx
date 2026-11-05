@@ -23,12 +23,15 @@ type Step =
   | { kind: "checking"; slug: string }
   | { kind: "address"; hint: AddressHint | null; slug?: string; error?: string }
   | { kind: "credentials"; school: School }
-  | { kind: "syncing"; token: string; me: Me };
+  /** cached: the account was synced before, so the app opens on that at once. at: when the sign-in answered. */
+  | { kind: "syncing"; token: string; me: Me; cached: boolean; at: number };
 
 /** The sync gauge's span on the dial, centred on north. Matches --neo-sweep in brand.css. */
 const SWEEP = 150;
-/** However the sync is going, the app opens after this long; the sync carries on behind it. */
+/** However the sync is going, the app opens this long after signing in; the sync carries on behind it. */
 const SYNC_PATIENCE = 20_000;
+/** A sync still waiting its turn on the server this long after signing in does not hold the screen either. */
+const QUEUE_PATIENCE = 5_000;
 
 /** Where to start: the school in the address, else the last school this device used, else the picker. */
 function firstStep(slugParam: string | undefined, recent: School[]): Step {
@@ -62,7 +65,9 @@ function stepLabel(step: Step) {
  *
  * Signing in does not leave the screen: the form wipes away and the compass syncs. The dial behind the mark fills like
  * a gauge and the needle sweeps across it as the sync goes, then finds north, and the app takes over. It says nothing
- * about what is being fetched; the compass is the progress.
+ * about what is being fetched; the compass is the progress. An account synced before (another device, a sign-in again)
+ * does not wait for it: the needle sweeps once to north and the app opens on what it already has, while the sync
+ * carries on behind it in the corner gauge.
  *
  * Motion: nothing slides or rises. On a cold load the screen is uncovered from the top while the needle swings to
  * north and the dial draws itself out from north. After that every change is a morph (lib/neo/morph.ts): the school
@@ -82,7 +87,7 @@ export function LoginScreen({ slugParam }: { slugParam?: string }) {
   // back at north, the gauge full, and the app about to open.
   const syncing = step.kind === "syncing" ? step : null;
   const run = useSyncRun(syncing?.token ?? null);
-  const sync = usePacedSync(syncing ? run : null);
+  const sync = usePacedSync(syncing && !syncing.cached ? run : null);
   const [foundNorth, setFoundNorth] = useState(false);
   // Why this device was signed out, if it was ("Your Compass password has changed. Sign in again.").
   const notice = signOutNotice.use();
@@ -154,23 +159,26 @@ export function LoginScreen({ slugParam }: { slugParam?: string }) {
 
   // Signed in: the device keeps the session at once (a reload from here lands in the app), and the form morphs into
   // the sync.
-  const signedIn = (token: string, me: Me) => {
-    void go({ kind: "syncing", token, me }, () => {
+  const signedIn = (token: string, me: Me, cached: boolean) => {
+    void go({ kind: "syncing", token, me, cached, at: Date.now() }, () => {
       sessionStore.set({ token, me });
       signOutNotice.set(null);
     });
   };
 
-  // Everything is in: the needle swings back to north and the line under the wordmark says so. A sync that is taking
-  // too long (or never started) does not hold the person here; it carries on behind the app.
-  const nothingToWaitFor = syncing != null && run === null;
+  // Everything is in: the needle swings back to north and the line under the wordmark says so. An account synced before
+  // has what home shows already, so the needle only takes one swing. A sync that is taking too long, or is still
+  // waiting its turn on the server (or never started), does not hold the person here; it carries on behind the app.
+  const waiting = syncing != null && !syncing.cached && (run === null || (!!run && !run.aliveAt && !run.finishedAt));
   useEffect(() => {
     if (!syncing || foundNorth) return;
     const finish = () => void morph(() => setFoundNorth(true));
     if (sync.complete) return finish();
-    const t = window.setTimeout(finish, nothingToWaitFor ? 4000 : SYNC_PATIENCE);
+    const left = (ms: number) => Math.max(0, syncing.at + ms - Date.now());
+    const wait = syncing.cached ? motionMs("--dur-morph") * 1.5 : left(waiting ? QUEUE_PATIENCE : SYNC_PATIENCE);
+    const t = window.setTimeout(finish, wait);
     return () => window.clearTimeout(t);
-  }, [syncing, sync.complete, foundNorth, nothingToWaitFor]);
+  }, [syncing, sync.complete, foundNorth, waiting]);
 
   // Then the app opens, once the needle has settled.
   useEffect(() => {

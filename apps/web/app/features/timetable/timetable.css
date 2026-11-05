@@ -211,3 +211,17 @@ html { scrollbar-gutter: stable; }
 
 /* Home's column: Tailwind's max-w-xl (576px), grown with the app's size knob so bigger type keeps its room. */
 .neo-column { max-width: calc(576px * var(--ui-scale)); }
+
+/* ---------- assemblies from the school's notices (convex/lib/assemblies.ts, features/home/announcements.tsx) ---------- */
+
+@layer components {
+/* An assembly is a cell in the day's block like a class, told apart by Neo blue: its glyph, its place's outline and the
+   faintest wash of it, so it reads as the school's rather than one of the student's classes. */
+.neo-cell > .neo-card.neo-assembly { background-color: color-mix(in oklab, var(--neo) 5%, transparent); }
+.neo-assembly-name { font: 600 calc(15px * var(--ui-scale))/1.3 var(--font-sans); }
+.neo-assembly-glyph { color: var(--neo-text); }
+/* The mark on a lesson an assembly takes ("Assembly instead"), in the warning ink as the class panel's changes are; on
+   the class on now, which is washed in its colour, the text's own ink. */
+.neo-assembly-note { color: var(--warn-text); font-weight: 500; }
+[data-current] .neo-assembly-note { color: var(--text-1); }
+}

@@ -1,0 +1,29 @@
+/*
+ * Median's support panel reads shadcn-style variables from the page. These point them at Glaze's tokens, so it follows
+ * the theme (dark, light, auto) with the rest of the app. Declared where Glaze declares its own, so each resolves
+ * against the theme on that element.
+ */
+[data-system="glaze"],
+.glaze {
+  --card: var(--paper);
+  --card-foreground: var(--text-1);
+  --muted: var(--field);
+  --muted-foreground: var(--text-2);
+  --primary: var(--focus);
+  --primary-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line-control);
+  --ring: var(--focus);
+  --radius: var(--radius-overlay);
+}
+
+/*
+ * Glaze outlines every focused element inside .glaze (base.css), unlayered, so it beats the panel's own layered styles
+ * and a focused field showed two rings: the panel's and Glaze's. Inside the panel, focus goes back to the panel's own
+ * styles (its fields' rings, its buttons' rings): revert-layer drops this unlayered outline back to what its layers say.
+ */
+.glaze [data-median-widget] :where(*):is(:focus-visible, [data-force-focus-visible]),
+.glaze [data-median-widget]:is(:focus-visible, [data-force-focus-visible]) {
+  outline: revert-layer;
+  outline-offset: revert-layer;
+}

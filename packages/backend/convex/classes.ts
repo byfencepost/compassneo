@@ -122,7 +122,7 @@ export type ClassDetail = {
 const finite = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-function semesterGrade(g: SubjectGrade, history: History | null): SemesterGrade {
+export function semesterGrade(g: SubjectGrade, history: History | null): SemesterGrade {
   const score = scoreOf(g.tasks);
   const h = history?.subjects[historyKey(g.semester, g.subject)];
   const connectPercent = finite(g.cumulativePercent) ? g.cumulativePercent : null;

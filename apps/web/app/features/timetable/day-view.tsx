@@ -5,8 +5,8 @@ import { DayDone, Icon, NoClasses, Pending } from "@/components/glaze/icon";
 import { cn } from "@/lib/glaze/utils";
 import { weekdayOf, isWeekend } from "@/lib/neo/days";
 import { spring } from "@/lib/neo/motion";
-import { arrange, keysOf, type Lesson, type ReadyDay } from "@/lib/neo/timetable";
-import { ClassCard, type CardSize } from "./class-card";
+import { arrange, keysOf, type Arranged, type DayAssembly, type Lesson, type ReadyDay } from "@/lib/neo/timetable";
+import { AssemblyCard, ClassCard, type CardSize } from "./class-card";
 
 /** The day block's corners: rounded, not a pill and not square. */
 export const BLOCK_RADIUS = 12;
@@ -73,9 +73,54 @@ const slide = {
   gone: (dir: number) => ({ opacity: 0, x: dir * -48, transition: spring.focus }),
 };
 
+type LessonCell = { kind: "lesson"; lesson: Lesson; size: CardSize; side: boolean; wide: boolean };
+type AssemblyCell = { kind: "assembly"; assembly: DayAssembly };
+type Cell = LessonCell | AssemblyCell;
+
+/** Whether an assembly comes before a lesson: one with no time comes first; one at the lesson's own time, before it. */
+const before = (a: DayAssembly, l: Lesson) => !a.start || Date.parse(a.start) <= Date.parse(l.start);
+
+/**
+ * The block's cells in order: the hero, then the rest of the lessons by time with the day's assemblies among them at
+ * their times (never above the hero, the lesson that matters now). Lessons keep their sizes by place, two rows after
+ * the hero and then tiles; tiles pair up between one assembly and the next, an odd one out in a run joining the rows
+ * rather than stretching across on its own.
+ */
+function layCells({ hero, rows, tiles }: Arranged, assemblies: DayAssembly[]): Cell[] {
+  const queue = [...assemblies];
+  const seq: Array<{ lesson: Lesson; size: "row" | "tile" } | AssemblyCell> = [];
+  for (const [lesson, size] of [...rows.map(l => [l, "row"] as const), ...tiles.map(l => [l, "tile"] as const)]) {
+    while (queue.length && before(queue[0]!, lesson)) seq.push({ kind: "assembly", assembly: queue.shift()! });
+    seq.push({ lesson, size });
+  }
+  seq.push(...queue.map(assembly => ({ kind: "assembly" as const, assembly })));
+
+  const out: Cell[] = hero ? [{ kind: "lesson", lesson: hero, size: "hero", side: false, wide: true }] : [];
+  let run: Lesson[] = [];
+  const flush = () => {
+    const odd = run.length % 2 === 1;
+    run.forEach((lesson, i) => {
+      if (odd && i === 0) out.push({ kind: "lesson", lesson, size: "row", side: false, wide: true });
+      else out.push({ kind: "lesson", lesson, size: "tile", side: (i - (odd ? 1 : 0)) % 2 === 1, wide: false });
+    });
+    run = [];
+  };
+  for (const c of seq) {
+    if ("lesson" in c && c.size === "tile") {
+      run.push(c.lesson);
+      continue;
+    }
+    flush();
+    out.push("lesson" in c ? { kind: "lesson", lesson: c.lesson, size: c.size, side: false, wide: true } : c);
+  }
+  flush();
+  return out;
+}
+
 /**
  * One school day as a single combined block, biggest first: the lesson on now (or next), the two after it, then the
- * rest two to a row. Today's finished lessons stay at the foot, greyed out.
+ * rest two to a row, with any assembly the school's notices announce at its time among them. Today's finished
+ * lessons (and assemblies) stay at the foot, greyed out.
  */
 function Day({ day, loading, dayKey, now, isToday, zone, selected, onOpen, onNextDay }: Props) {
   const lessons = day?.lessons ?? [];
@@ -83,18 +128,16 @@ function Day({ day, loading, dayKey, now, isToday, zone, selected, onOpen, onNex
   const keys = keysOf(lessons, dayKey);
   const keyOf = new Map<Lesson, string>(lessons.map((l, i) => [l, keys[i]!]));
   const arranged = arrange(lessons, now, isToday);
-  const { hero, done, over } = arranged;
-  // Tiles come in pairs: an odd one out joins the rows rather than stretching across on its own.
-  const odd = arranged.tiles.length % 2 === 1;
-  const rows = odd ? [...arranged.rows, arranged.tiles[0]!] : arranged.rows;
-  const tiles = odd ? arranged.tiles.slice(1) : arranged.tiles;
+  const { done, over } = arranged;
 
-  // Where each cell sits, for its hairlines: every cell but the first has one above it, and the right-hand tile of a
-  // pair has one beside it.
-  const cells: Array<{ lesson: Lesson; size: CardSize; side: boolean; wide: boolean }> = [];
-  if (hero) cells.push({ lesson: hero, size: "hero", side: false, wide: true });
-  rows.forEach(l => cells.push({ lesson: l, size: "row", side: false, wide: true }));
-  tiles.forEach((l, i) => cells.push({ lesson: l, size: "tile", side: i % 2 === 1, wide: false }));
+  // An assembly over today joins the finished lessons, in time order; the rest sit among the lessons to come.
+  const assemblies = day?.assemblies ?? [];
+  const isOver = (a: DayAssembly) => isToday && !!a.finish && Date.parse(a.finish) <= now;
+  const cells = layCells(arranged, assemblies.filter(a => !isOver(a)));
+  const finished: Array<{ at: string; lesson?: Lesson; assembly?: DayAssembly }> = [
+    ...done.map(lesson => ({ at: lesson.start, lesson })),
+    ...assemblies.filter(isOver).map(assembly => ({ at: assembly.start ?? "", assembly })),
+  ].sort((a, b) => a.at.localeCompare(b.at));
 
   const card = (l: Lesson, size: CardSize, isDone = false) => {
     const k = keyOf.get(l)!;
@@ -139,16 +182,27 @@ function Day({ day, loading, dayKey, now, isToday, zone, selected, onOpen, onNex
         style={{ borderRadius: BLOCK_RADIUS }}
         className="neo-stack grid grid-cols-2"
       >
-        {cells.map((c, i) => (
-          <div key={keyOf.get(c.lesson)} data-top={i > 0 || undefined} data-side={c.side || undefined} className={cn("neo-cell", c.wide ? "col-span-2" : "min-w-0")}>
-            {card(c.lesson, c.size)}
-          </div>
-        ))}
+        {/* Every cell but the first has a hairline above it; the right-hand tile of a pair has one beside it too. */}
+        {cells.map((c, i) =>
+          c.kind === "lesson" ? (
+            <div key={keyOf.get(c.lesson)} data-top={i > 0 || undefined} data-side={c.side || undefined} className={cn("neo-cell", c.wide ? "col-span-2" : "min-w-0")}>
+              {card(c.lesson, c.size)}
+            </div>
+          ) : (
+            <div key={`assembly:${c.assembly.id}`} data-top={i > 0 || undefined} className="neo-cell col-span-2">
+              <AssemblyCard assembly={c.assembly} zone={zone} />
+            </div>
+          ),
+        )}
 
         {/* Today's finished classes stay on the day, after the rest, greyed out: no label, nothing to open. */}
-        {done.map((l, i) => (
-          <div key={keyOf.get(l)} data-top={cells.length + i > 0 || undefined} className="neo-cell col-span-2">
-            {card(l, "done", true)}
+        {finished.map((f, i) => (
+          <div
+            key={f.lesson ? keyOf.get(f.lesson) : `assembly:${f.assembly!.id}`}
+            data-top={cells.length + i > 0 || undefined}
+            className="neo-cell col-span-2"
+          >
+            {f.lesson ? card(f.lesson, "done", true) : <AssemblyCard assembly={f.assembly!} zone={zone} done />}
           </div>
         ))}
       </div>

@@ -8,7 +8,8 @@ import { SubjectGlyph, TeacherFace } from "@/features/timetable/class-card";
 import { Donut } from "@/features/timetable/donut";
 
 /** Whether the list is open, kept on this device. */
-const openStore = persisted<boolean>("cneo.classlist.open.v1", true);
+// Folded until opened: the day above already shows the classes on it.
+const openStore = persisted<boolean>("cneo.classlist.open.v2", false);
 
 /**
  * Every class the student takes, under the day: one block of hairline rows like the day's, each with the class's

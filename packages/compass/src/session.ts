@@ -1,4 +1,5 @@
 import { USER_AGENT, normalizeSlug, schoolOrigin } from "./school";
+import { retrying } from "./retry";
 
 /**
  * Signing in without a browser. The web login page waits on a Cloudflare Turnstile check, which is why the
@@ -54,8 +55,21 @@ type AuthBody = {
   };
 };
 
-/** Signs in and returns a session, or throws a CompassError that says why not. */
-export async function signIn({
+/**
+ * Whether a failed sign-in is worth trying again: Compass busy or down (5xx, 429), Cloudflare turning one request away,
+ * a sign-in that came back without a session or without saying who it is, or the network dropping the request. Never
+ * a wrong password, two-step sign-in or an unknown school: those answer the same every time, and repeating a wrong
+ * password only brings Compass's lockout closer.
+ */
+export const transientSignIn = (e: unknown) =>
+  e instanceof CompassError ? e.code === "upstream" || e.code === "blocked" : e instanceof Error;
+
+/** Signs in and returns a session, or throws a CompassError that says why not. Hiccups are tried again (retry.ts). */
+export function signIn(login: { slug: string; username: string; password: string }): Promise<CompassSession> {
+  return retrying(() => signInOnce(login), transientSignIn, { tries: 3, backoffMs: 700 });
+}
+
+async function signInOnce({
   slug: slugInput,
   username,
   password,
@@ -73,11 +87,17 @@ export async function signIn({
     redirect: "manual",
   });
   if (res.status === 403 && res.headers.get("cf-mitigated")) {
+    await res.body?.cancel();
     throw new CompassError("Compass's firewall turned the sign-in away.", "blocked", 403);
   }
   if (res.status >= 300 && res.status < 400) throw new CompassError("No Compass school answers at that address.", "unknown-school", res.status);
-  if (!res.ok) throw new CompassError(`Compass answered ${res.status}.`, "upstream", res.status);
-  const body = (await res.json().catch(() => ({}))) as AuthBody;
+  if (!res.ok) {
+    await res.body?.cancel();
+    throw new CompassError(`Compass answered ${res.status}.`, "upstream", res.status);
+  }
+  const body = (await res.json().catch(() => null)) as AuthBody | null;
+  // A body that is not JSON (an error page with a 200) says nothing about the password: try again rather than call it wrong.
+  if (!body) throw new CompassError("Compass's answer to the sign-in was not readable.", "upstream", res.status);
   const d = body.d ?? {};
   if (d["2FAuthRequired"]) throw new CompassError("This account uses two-step sign-in.", "two-factor");
   if (!d.success) {
@@ -86,7 +106,9 @@ export async function signIn({
   const cookies = readSetCookies(res.headers);
   if (!Object.keys(cookies).length) throw new CompassError("Compass signed in but sent no session.", "upstream");
   const session = new CompassSession(slug, cookies);
-  await session.resolveUserId();
+  // Finding out who signed in is one more page; a hiccup there is tried again on the same session before the whole
+  // sign-in is (which would ask Compass to check the password again).
+  await retrying(() => session.resolveUserId(), transientSignIn, { tries: 2, backoffMs: 500 });
   return session;
 }
 

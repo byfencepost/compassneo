@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { hashToken } from "./lib/crypto";
 
 /**
  * Accounts: one per school and username, shared by every device signed in to it.
@@ -14,11 +15,20 @@ import type { Doc, Id } from "./_generated/dataModel";
  *
  * Sessions are devices: a token hash pointing at an account. When the last device signs out, the account and its
  * stored login are deleted.
+ *
+ * When the stored login stops working (lib/compass.ts), the account is forgotten behind its devices' backs, often in a
+ * background sync nobody is watching. Each device is left a farewell under its token's hash for a few days, saying
+ * why: an open app reads it (`farewell`) and shows it on the sign-in screen, and one opened later hears it from
+ * sync.now. The hourly sweep (auth.ts) clears old ones.
  */
 
 export const accountKey = (slug: string, username: string) => `${slug}:${username.trim().toLowerCase()}`;
 
 const HOUR = 60 * 60 * 1000;
+const FAREWELL_FOR = 7 * 24 * HOUR;
+
+const farewellV = v.object({ code: v.union(v.literal("signed-out"), v.literal("password-changed")), message: v.string() });
+export type Farewell = { code: "signed-out" | "password-changed"; message: string };
 
 export const byTokenHash = internalQuery({
   args: { tokenHash: v.string() },
@@ -114,9 +124,14 @@ export const touch = internalMutation({
   },
 });
 
-/** Deletes an account, its devices and everything cached for it: its stored login goes with it. */
-export async function forgetAccount(ctx: MutationCtx, account: Doc<"accounts">) {
+/**
+ * Deletes an account, its devices and everything cached for it: its stored login goes with it. With a farewell, each
+ * device is told why (see above); a device signing itself out needs none. A sync job still waiting finds its run gone
+ * and stops; one under way stops at its next step (convex/sync.ts).
+ */
+export async function forgetAccount(ctx: MutationCtx, account: Doc<"accounts">, farewell?: Farewell) {
   for (const s of await ctx.db.query("sessions").withIndex("by_account", i => i.eq("accountId", account._id)).collect()) {
+    if (farewell) await ctx.db.insert("farewells", { tokenHash: s.tokenHash, ...farewell, at: Date.now() });
     await ctx.db.delete(s._id);
   }
   for (const c of await ctx.db.query("connectCache").withIndex("by_account_kind", i => i.eq("accountId", account._id)).collect()) {
@@ -134,9 +149,26 @@ export async function forgetAccount(ctx: MutationCtx, account: Doc<"accounts">) 
 
 /** The stored login stopped working (the password changed) or there is none to sign in again with. */
 export const forget = internalMutation({
-  args: { accountId: v.id("accounts") },
-  handler: async (ctx, { accountId }) => {
+  args: { accountId: v.id("accounts"), farewell: v.optional(farewellV) },
+  handler: async (ctx, { accountId, farewell }) => {
     const account = await ctx.db.get(accountId);
-    if (account) await forgetAccount(ctx, account);
+    if (account) await forgetAccount(ctx, account, farewell);
   },
 });
+
+/** Why this device was signed out behind its back, if it was: the app shows it on the sign-in screen. */
+export const farewell = query({
+  args: { token: v.union(v.string(), v.null()) },
+  handler: async (ctx, { token }): Promise<Farewell | null> => (token ? farewellFor(ctx, await hashToken(token)) : null),
+});
+
+export async function farewellFor(ctx: QueryCtx, tokenHash: string): Promise<Farewell | null> {
+  const row = await ctx.db.query("farewells").withIndex("by_token", i => i.eq("tokenHash", tokenHash)).first();
+  return row ? { code: row.code, message: row.message } : null;
+}
+
+/** Clears farewells older than FAREWELL_FOR, a bounded batch at a time (the hourly sweep, auth.ts). */
+export async function sweepFarewells(ctx: MutationCtx, now: number) {
+  const old = await ctx.db.query("farewells").withIndex("by_at", i => i.lt("at", now - FAREWELL_FOR)).take(500);
+  for (const f of old) await ctx.db.delete(f._id);
+}

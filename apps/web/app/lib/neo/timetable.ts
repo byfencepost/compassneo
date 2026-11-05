@@ -16,6 +16,9 @@ export type Day = NonNullable<FunctionReturnType<typeof api.timetable.day>>;
 export type ReadyDay = Extract<Day, { status: "ready" }>;
 export type Lesson = ReadyDay["lessons"][number];
 export type Grade = NonNullable<Lesson["grade"]>;
+/** An assembly the school's notices announce for the day, and the mark it leaves on a lesson it takes (lib/assemblies.ts). */
+export type DayAssembly = NonNullable<ReadyDay["assemblies"]>[number];
+export type LessonAssembly = NonNullable<Lesson["assembly"]>;
 
 /** How many days this device keeps: about a fortnight around wherever the person has been looking. */
 const KEEP = 16;

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Icon, Relief, RoomChange } from "@/components/glaze/icon";
+import { EventAssembly, Icon, Relief, RoomChange } from "@/components/glaze/icon";
 import { subjectIcon } from "@/lib/neo/subjects";
 import { cn } from "@/lib/glaze/utils";
 import { clock, minutes } from "@/lib/neo/days";
 import { spring } from "@/lib/neo/motion";
-import { whenOf, type Lesson } from "@/lib/neo/timetable";
+import { whenOf, type DayAssembly, type Lesson } from "@/lib/neo/timetable";
+import { assemblyTime } from "@/lib/neo/announcements";
 import { Donut } from "./donut";
 
 /** hero: on now or next. row: the two after. tile: the rest, two to a row. done: over today, one slim line. */
@@ -124,6 +125,68 @@ export function TeacherName({
 
 export const timeRange = (l: Lesson, zone: string) => `${clock(l.start, zone)} – ${clock(l.finish, zone)}`;
 
+/** Within this of a lesson's start or end, an assembly counts as at its start or end (bells round to the minute). */
+const EDGE = 5 * 60 * 1000;
+
+/**
+ * What an assembly does to a lesson, in words: "Assembly instead", "Assembly 9:00 – 9:40, then class", "Class, then
+ * assembly 2:10 – 2:40". One the notice is vague about, or that may be for other students, starts "Maybe".
+ */
+export function assemblyText(l: Lesson, zone: string): string | null {
+  const a = l.assembly;
+  if (!a) return null;
+  const what = a.maybe ? "Maybe an assembly" : "Assembly";
+  if (a.replaces === "whole") return `${what} instead`;
+  const range = a.start && a.finish ? `${clock(a.start, zone)} – ${clock(a.finish, zone)}` : a.start ? `at ${clock(a.start, zone)}` : null;
+  if (!range) return what;
+  const start = Date.parse(a.start!);
+  if (start <= Date.parse(l.start) + EDGE) return `${what} ${range}, then class`;
+  if (a.finish && Date.parse(a.finish) >= Date.parse(l.finish) - EDGE) return `Class, then ${what.toLowerCase()} ${range}`;
+  return `${what} ${range}`;
+}
+
+/**
+ * The mark an assembly leaves on a lesson's card, in the spirit of the relief and room marks: the assembly glyph and
+ * what happens to the class. compact: on a phone the glyph alone stands for it (the words stay for screen readers);
+ * glyph: only ever the glyph (a finished lesson's slim line).
+ */
+export function AssemblyNote({ lesson, zone, compact, glyph, className }: { lesson: Lesson; zone: string; compact?: boolean; glyph?: boolean; className?: string }) {
+  const text = assemblyText(lesson, zone);
+  if (!text) return null;
+  const place = lesson.assembly?.place;
+  return (
+    <span className={cn("neo-assembly-note inline-flex min-w-0 items-center gap-1 whitespace-nowrap", className)}>
+      <Icon icon={EventAssembly} size={12} label={glyph ? text : undefined} />
+      {!glyph && <span className={cn("truncate", compact && "max-sm:sr-only")}>{place && !compact ? `${text} · ${place}` : text}</span>}
+    </span>
+  );
+}
+
+/**
+ * An assembly as a cell in the day's block, at its time among the lessons: its name, who it is for, where, and when.
+ * Nothing to open; the lessons it takes carry their own mark (AssemblyNote). done: over today, one slim line.
+ */
+export function AssemblyCard({ assembly: a, zone, done }: { assembly: DayAssembly; zone: string; done?: boolean }) {
+  const about = [a.audience, a.maybe ? "May not include you" : null, a.notes].filter(Boolean).join(" · ");
+  return (
+    <div data-done={done || undefined} className={cn("neo-card neo-assembly", done ? "px-4 py-2" : "px-4 py-2.5")}>
+      <span className={cn("flex min-w-0 items-center", done ? "gap-2" : "min-h-8 gap-2.5")}>
+        <Icon icon={EventAssembly} size={done ? 14 : 16} className="neo-assembly-glyph" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className={cn("truncate", done ? "type-label" : "neo-assembly-name", a.maybe && !done && "text-text-2")}>{a.title}</span>
+          {!done && about && <span className="truncate type-caption text-text-3">{about}</span>}
+        </span>
+        {a.place && (
+          <span className="neo-room" data-size={done ? "sm" : "md"}>
+            {a.place}
+          </span>
+        )}
+        <span className="neo-tabular shrink-0 type-caption whitespace-nowrap text-text-3">{assemblyTime(a, zone)}</span>
+      </span>
+    </div>
+  );
+}
+
 /** The line over the biggest card: how long is left of the lesson on now, or when the next one starts. */
 function heroStatus(l: Lesson, now: number, isToday: boolean, zone: string) {
   if (!isToday) return l.period != null ? `Period ${l.period}` : null;
@@ -205,10 +268,20 @@ export function ClassCard({
             </span>
             <span className="mt-2 flex min-w-0 items-baseline gap-3">
               <TeacherName lesson={lesson} layoutId={id.who} face="md" className="neo-teacher-hero shrink-3" />
-              <motion.span layoutId={id.time} transition={spring.morph} className="neo-time-hero whitespace-nowrap text-text-3">
+              <motion.span
+                layoutId={id.time}
+                transition={spring.morph}
+                className="neo-time-hero whitespace-nowrap text-text-3"
+                title={lesson.timesWas ? `Compass has ${timeRange({ ...lesson, ...lesson.timesWas }, zone)}` : undefined}
+              >
                 {timeRange(lesson, zone)}
               </motion.span>
             </span>
+            {lesson.assembly ? (
+              <AssemblyNote lesson={lesson} zone={zone} className="mt-2 type-label-sm" />
+            ) : (
+              lesson.timesWas && <span className="neo-assembly-note mt-2 type-label-sm">New times from the school's notices</span>
+            )}
           </span>
           {hasGrade && <Donut percent={pct} showValue layoutId={id.donut} thickness={9} className="size-17" valueClassName="neo-value-hero" />}
         </span>
@@ -221,6 +294,7 @@ export function ClassCard({
             {lesson.name}
           </motion.span>
           <RoomTag lesson={lesson} size="md" layoutId={id.room} />
+          <AssemblyNote lesson={lesson} zone={zone} compact className="shrink-2 type-caption" />
           <TeacherName lesson={lesson} layoutId={id.who} compact className="shrink-3 type-label text-text-1" />
           <motion.span layoutId={id.time} transition={spring.morph} className="neo-tabular ms-auto shrink-0 type-caption whitespace-nowrap text-text-3">
             {timeRange(lesson, zone)}
@@ -243,7 +317,11 @@ export function ClassCard({
               <motion.span layoutId={id.time} transition={spring.morph} className="neo-tabular type-caption whitespace-nowrap text-text-3">
                 {timeRange(lesson, zone)}
               </motion.span>
-              {lesson.teacherWas && <TeacherName lesson={lesson} layoutId={id.who} face={false} className="type-caption" />}
+              {lesson.assembly ? (
+                <AssemblyNote lesson={lesson} zone={zone} className="type-caption" />
+              ) : (
+                lesson.teacherWas && <TeacherName lesson={lesson} layoutId={id.who} face={false} className="type-caption" />
+              )}
             </span>
           </span>
           {hasGrade && <Donut percent={pct} layoutId={id.donut} thickness={16} className="size-5" />}
@@ -257,6 +335,7 @@ export function ClassCard({
             {lesson.name}
           </motion.span>
           <RoomTag lesson={lesson} size="sm" layoutId={id.room} />
+          <AssemblyNote lesson={lesson} zone={zone} glyph />
           <motion.span layoutId={id.time} transition={spring.morph} className="neo-tabular ms-auto type-caption whitespace-nowrap text-text-3">
             {timeRange(lesson, zone)}
           </motion.span>

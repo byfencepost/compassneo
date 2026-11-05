@@ -12,9 +12,13 @@
     "./dataModel": "./convex/_generated/dataModel.d.ts"
   },
   "dependencies": {
-    "convex": "^1.49.0",
+    "@anthropic-ai/sdk": "^1.5.0",
     "@compassneo/compass": "workspace:*",
-    "@compassneo/connect": "workspace:*"
+    "@compassneo/connect": "workspace:*",
+    "@convex-dev/workpool": "^0.4.15",
+    "@mediansh/agent-tools": "^0.4.0",
+    "convex": "^1.49.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

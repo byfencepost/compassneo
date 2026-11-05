@@ -5,6 +5,8 @@ import { connectFile } from "@compassneo/connect";
 import { withCompass } from "./lib/compass";
 import { withConnect } from "./lib/connect";
 import { readLink } from "./lib/links";
+import { median } from "@mediansh/agent-tools";
+import { medianConfig } from "./lib/median";
 
 /**
  * GET /file/<link>/<name>: a file from Compass or Connect, fetched with the account's session (lib/links.ts says which
@@ -77,6 +79,18 @@ const TYPES: Record<string, string> = {
 };
 const guessType = (name: string) => TYPES[/\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
+/**
+ * /api/median: Median's tools (lib/median.ts). An unsigned GET connects this URL to Median and syncs the manifest (do one
+ * after each deploy); signed GETs and POSTs come from Median itself. The request reaches the handler with its body
+ * untouched, as the signature needs.
+ */
+const medianRoute = httpAction(async (ctx, req) => {
+  const { GET, POST } = median(medianConfig(ctx));
+  return req.method === "POST" ? POST(req) : GET(req);
+});
+
 const http = httpRouter();
 http.route({ pathPrefix: "/file/", method: "GET", handler: fileRoute });
+http.route({ path: "/api/median", method: "GET", handler: medianRoute });
+http.route({ path: "/api/median", method: "POST", handler: medianRoute });
 export default http;

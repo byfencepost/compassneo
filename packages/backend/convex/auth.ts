@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import { CompassError, getUserDetails, normalizeSlug, probeSchool, signIn as compassSignIn } from "@compassneo/compass";
 import { hashToken, newToken, seal } from "./lib/crypto";
 import { type Problem } from "./lib/compass";
-import { accountKey, forgetAccount } from "./accounts";
+import { accountKey, forgetAccount, sweepFarewells } from "./accounts";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -27,7 +27,8 @@ export type Me = {
 };
 
 export type SignInResult =
-  | { ok: true; token: string; me: Me }
+  /** cached: the account was synced before (another device, a sign-in again), so the app can open on that at once. */
+  | { ok: true; token: string; me: Me; cached: boolean }
   | {
       ok: false;
       code: "bad-credentials" | "two-factor" | "blocked" | "expired" | "unknown-school" | "upstream" | "rate-limited";
@@ -57,8 +58,10 @@ export const signIn = action({
     try {
       session = await compassSignIn({ slug, username, password: args.password });
     } catch (e) {
+      // compassSignIn has already tried a hiccup three times (packages/compass/src/retry.ts); what is left is an answer.
       if (e instanceof CompassError) return { ok: false, code: e.code, message: e.message };
-      throw e;
+      // The network still failing after those tries reads to the person as Compass not answering, not as a crash.
+      return { ok: false, code: "upstream", message: "Compass did not answer. Try again in a minute." };
     }
 
     const details = await getUserDetails(session).catch(() => null);
@@ -94,10 +97,11 @@ export const signIn = action({
       sealedLogin: await seal("CREDENTIALS_KEY", { username, password: args.password }, key),
       sealedCompass: await seal("SESSION_KEY", session.cookies, key),
     });
-    // Sync now (Compass, and Connect at a WA school), so everything is there as the app opens; the app draws it.
-    const runId = await ctx.runMutation(internal.sync.begin, { accountId, reason: "sign-in", force: true });
-    if (runId) await ctx.scheduler.runAfter(0, internal.sync.run, { runId });
-    return { ok: true, token, me };
+    // Sync now (Compass, and Connect at a WA school), so everything is there as the app opens; the app draws it. The run
+    // waits its turn in the sync pool (convex/sync.ts), so this answers at once. An account already synced opens on
+    // what it has (cached) while the run carries on behind the app.
+    const { cached } = await ctx.runMutation(internal.sync.signedIn, { accountId });
+    return { ok: true, token, me, cached };
   },
 });
 
@@ -156,13 +160,17 @@ export const noteAttempt = internalMutation({
   },
 });
 
-/** Drops old attempts, and devices nobody has used in a month (an account with no devices left goes too). */
+/**
+ * Drops old attempts, old farewells (accounts.ts), and devices nobody has used in a month (an account with no devices
+ * left goes too).
+ */
 export const sweep = internalMutation({
   args: {},
   handler: async ctx => {
     const now = Date.now();
     const oldAttempts = await ctx.db.query("attempts").withIndex("by_key_at").filter(q => q.lt(q.field("at"), now - ATTEMPT_WINDOW)).take(500);
     for (const a of oldAttempts) await ctx.db.delete(a._id);
+    await sweepFarewells(ctx, now);
     const stale = await ctx.db.query("sessions").withIndex("by_lastSeen", i => i.lt("lastSeenAt", now - 30 * 24 * HOUR)).take(200);
     for (const s of stale) {
       await ctx.db.delete(s._id);

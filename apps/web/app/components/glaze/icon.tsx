@@ -21,7 +21,7 @@ import {
 import {TransferHorizontalIcon, UsersGroupTwoRoundedIcon} from '@solar-icons/react/linear';
 // The student's own pages (features/student): attendance, events and Chronicle, the kinds of event, a commendation.
 import {
-  BalloonIcon, BusIcon, CalendarDateIcon, ChatRoundDotsIcon, ClipboardCheckIcon, CupHotIcon, Flag2Icon, LikeIcon,
+  BalloonIcon, BusIcon, CalendarDateIcon, ChatRoundDotsIcon, QuestionCircleIcon, ClipboardCheckIcon, CupHotIcon, Flag2Icon, LikeIcon,
   LetterIcon, LightbulbBoltIcon, MicrophoneLargeIcon, NotebookBookmarkIcon, StarIcon, UserCheckRoundedIcon,
 } from '@solar-icons/react/bold';
 import {forwardRef} from 'react';
@@ -44,6 +44,8 @@ export const ArrowUpRight = ArrowRightUpIcon;
 export const ArrowDownRight = ArrowRightDownIcon;
 export const Attachment = PaperclipIcon;
 export const Bot = BotIcon;
+/** Help: the support button in the top bar (features/support). */
+export const Help = QuestionCircleIcon;
 export const Calendar = CalendarIcon;
 export const Check = CheckIcon;
 export const ChevronDown = AltArrowDownIcon;

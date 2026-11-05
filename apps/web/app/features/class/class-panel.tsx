@@ -24,9 +24,15 @@ import { SidePanel, type PanelLayout } from "@/features/panel/side-panel";
 
 export { usePanelLayout } from "@/features/panel/side-panel";
 
-/** The class picked: its code, and the lesson it was picked from (for its name, colour, glyph and grade while the rest
- * loads). */
-export type Picked = { code: string; key: string; lesson: Lesson };
+/** The panel's sections. */
+export type ClassTab = "overview" | "grades" | "work" | "files" | "lessons";
+
+/**
+ * The class picked: its code, the lesson it was picked from (for its name, colour, glyph and grade while the rest
+ * loads), and the section to open on (a subject's grades or a piece of work from home's lists). Without a section a
+ * newly opened class starts on the overview, and another class picked while one is open keeps the section that was up.
+ */
+export type Picked = { code: string; key: string; lesson: Lesson; tab?: ClassTab };
 
 /** Fetches the plans of the day's lessons ahead, so a class opened from the day shows its plan at once. Renders nothing. */
 export function PlanPrefetch({ token, ids }: { token: string; ids: string[] }) {
@@ -101,7 +107,7 @@ export function ClassPanel(props: Props) {
   );
 }
 
-type TabId = "overview" | "grades" | "work" | "files" | "lessons";
+type TabId = ClassTab;
 
 const TAB: Record<TabId, Omit<TabSpec<TabId>, "id">> = {
   overview: { label: "Overview", icon: Overview },
@@ -136,7 +142,7 @@ function Body({ picked, lessonOnDay, token, day, today, now, zone, isToday, conn
   const flows = useWorkFlows(token, picked.code);
   const loading = detail === undefined;
   const close = useRef<HTMLButtonElement>(null);
-  const [tab, setTab] = useState<TabId>("overview");
+  const [tab, setTab] = useState<TabId>(picked.tab ?? "overview");
   const [dir, setDir] = useState(0);
   const [sem, setSem] = useState<number | null>(null);
   /** The piece of work open in the Work section, over its list. */
@@ -188,7 +194,9 @@ function Body({ picked, lessonOnDay, token, day, today, now, zone, isToday, conn
   const has: Record<TabId, boolean> = {
     overview: true,
     grades: loading ? connect && !!l.grade : !!main,
-    work: hasWork,
+    // Opened on its work (home's to-do list, which only lists work there is), the section holds its place while the
+    // class's work loads, rather than starting on the overview and jumping.
+    work: hasWork || (picked.tab === "work" && work === undefined),
     files: !noResources(resources),
     lessons: loading || !!detail?.lessons.length,
   };
@@ -200,6 +208,14 @@ function Body({ picked, lessonOnDay, token, day, today, now, zone, isToday, conn
     setWorkKey(null);
     setPeopleOpen(false);
   };
+  // Picked on a section (a subject's grades, a piece of work on home): the panel goes there, also when this class is
+  // already open on another section. Each such pick has its own key, so picking the open class on another section is a
+  // new pick. A section not there yet (still loading) is kept as the one wanted, and shows once the class has it.
+  useEffect(() => {
+    if (picked.tab && picked.tab !== tab) go(picked.tab);
+    // Only a new pick moves the section: the section changed by hand must not be moved back on the next render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked.key, picked.tab]);
   const workItem = shown === "work" && workKey ? (workList.find(w => w.key === workKey) ?? null) : null;
   const openWork = (key: string) => {
     setDir(1);

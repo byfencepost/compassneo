@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate, PrefetchPageLinks, useNavigate } from "react-router";
-import { useAction } from "convex/react";
+import { Navigate, PrefetchPageLinks, useNavigate, useSearchParams } from "react-router";
 import { LayoutGroup, motion, type PanInfo } from "motion/react";
-import { api } from "@compassneo/backend/api";
 import type { Route } from "./+types/home";
 import { signOutNotice, useSession, useSignOut } from "@/lib/neo/session";
 import { NeoMark } from "@/components/brand/logo";
@@ -15,17 +13,26 @@ import { addDays, dayIn, daysApart, zoneOf } from "@/lib/neo/days";
 import { keysOf, useDay } from "@/lib/neo/timetable";
 import { useNow } from "@/lib/neo/time";
 import { SyncButton } from "@/features/sync/sync-button";
+import { SupportButton } from "@/features/support/support";
+import { useAutoSync } from "@/lib/neo/sync";
 import { Profile } from "@/features/home/profile";
 import { DayView } from "@/features/timetable/day-view";
 import { DayPicker } from "@/features/timetable/day-picker";
-import { ClassPanel, ClassPrefetch, PlanPrefetch, type Picked } from "@/features/class/class-panel";
+import { ClassPanel, ClassPrefetch, PlanPrefetch, type ClassTab, type Picked } from "@/features/class/class-panel";
 import { ActivePanel, dayRoom, usePanelLayout } from "@/features/panel/side-panel";
 import { StudentPanel, type StudentPage } from "@/features/student/student-panel";
 import { StudentShortcuts } from "@/features/student/shortcuts";
 import { ClassList } from "@/features/home/class-list";
-import { lessonOfClass, type ListedClass } from "@/lib/neo/classlist";
+import { GradesRow } from "@/features/home/grades-row";
+import { TodoList } from "@/features/home/todo-list";
+import { Announcements } from "@/features/home/announcements";
+import { lessonOfClass, useClassList, type ListedClass } from "@/lib/neo/classlist";
 import { FileViewer } from "@/features/viewer/file-viewer";
 import { spring } from "@/lib/neo/motion";
+
+/** What the support agent may open by address (see the effect in Home). */
+const PAGE_NAMES: StudentPage[] = ["grades", "attendance", "events", "chronicle", "notices"];
+const TAB_NAMES: ClassTab[] = ["overview", "grades", "work", "files", "lessons"];
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Compass Neo" }];
@@ -45,7 +52,6 @@ export default function Home() {
   const session = useSession();
   const signOut = useSignOut();
   const navigate = useNavigate();
-  const syncNow = useAction(api.sync.now);
   const token = session.token;
   const me = session.me;
   const arrival = useArrival();
@@ -106,6 +112,17 @@ export default function Home() {
     setPage(null);
     setOpenClass({ code: c.code, key: `list:${c.code}`, lesson: lessonOfClass(c, now) });
   };
+  // A class by its code, from the to-do list and the grades page: it opens on the section asked for (its work, its grades).
+  // Pressing the class already open on that section puts the panel away.
+  const listed = useClassList(token, day);
+  const openCode = (code: string, el: HTMLElement, tab?: ClassTab) => {
+    const c = listed?.find(x => x.code === code);
+    if (!c) return;
+    if (openClass?.code === c.code && openClass.tab === tab) return close();
+    openedFrom.current = el;
+    setPage(null);
+    setOpenClass({ code: c.code, key: `list:${c.code}${tab ? `:${tab}` : ""}`, lesson: lessonOfClass(c, now), tab });
+  };
   const openPage = (p: StudentPage) => {
     if (page === p) return close();
     openedFrom.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -115,17 +132,36 @@ export default function Home() {
   };
   const panelOpen = !!openClass || !!page;
 
-  // Opening the app syncs, unless the last sync is under twenty minutes old (a sign-in has just done one). If Compass
-  // has ended the session, the server signs in again with the stored login; if that login no longer works, the
-  // account is forgotten and this device lands on sign-in with the reason.
+  // The support agent opens a page or a class by address (/?panel=grades, /?class=<code>&tab=work; its tools are in
+  // packages/backend/convex/lib/median.ts). Each is taken once, then dropped from the address, so a reload or Back does
+  // not open it again. A class waits for the class list to arrive; one not in it is let go.
+  const [params, setParams] = useSearchParams();
   useEffect(() => {
-    if (!token) return;
-    void syncNow({ token })
-      .then(r => {
-        if (!r.ok && (r.code === "signed-out" || r.code === "password-changed")) signOutNotice.set(r.message);
-      })
-      .catch(() => {});
-  }, [token, syncNow]);
+    const asked = params.get("panel");
+    const code = params.get("class");
+    if (!asked && !code) return;
+    if (code && listed === undefined) return;
+    if (asked && PAGE_NAMES.includes(asked as StudentPage)) {
+      if (page !== asked) openPage(asked as StudentPage);
+    } else if (code) {
+      const c = listed?.find(x => x.code === code);
+      const tab = params.get("tab");
+      const at = tab && TAB_NAMES.includes(tab as ClassTab) ? (tab as ClassTab) : undefined;
+      if (c) {
+        openedFrom.current = null;
+        setPage(null);
+        setOpenClass({ code: c.code, key: `list:${c.code}${at ? `:${at}` : ""}`, lesson: lessonOfClass(c, now), tab: at });
+      }
+    }
+    setParams({}, { replace: true });
+    // Only a new address (or the class list arriving for one) acts; the rest is read as it is then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, listed]);
+
+  // Keeps the account synced while the app is open (lib/neo/sync.ts). If Compass has ended the session, the server signs
+  // in again with the stored login; if that login no longer works, the account is forgotten and this device lands on
+  // sign-in with the reason.
+  useAutoSync(token);
 
   // The arrow keys turn the day, T goes back to today, Escape closes the class panel. With the panel beside the day
   // (a wide screen) the keys still turn the day, unless the panel has focus; on a phone it covers the day, so they wait.
@@ -186,6 +222,7 @@ export default function Home() {
                 <NeoMark size={26} className="neo-vt-mark" />
               </button>
               <div className="ms-auto flex items-center gap-1.5">
+                <SupportButton />
                 <SyncButton token={token} />
                 <Profile me={me} token={token} onSignOut={() => void leave()} />
               </div>
@@ -228,7 +265,10 @@ export default function Home() {
               />
             </motion.div>
             <DayPicker day={day} today={today} dir={dir} onMove={move} onToday={toToday} />
+            <GradesRow token={token} day={day} open={page === "grades"} onOpen={() => openPage("grades")} />
+            <TodoList token={token} today={today} zone={zone} now={now} selected={openClass?.code ?? null} onOpenClass={openCode} />
             <ClassList token={token} day={day} today={today} zone={zone} now={now} selected={openClass?.code ?? null} onOpen={openListed} />
+            <Announcements token={token} today={today} zone={zone} now={now} open={page === "notices"} onOpen={() => openPage("notices")} />
             <StudentShortcuts token={token} open={page} onOpen={openPage} />
 
           </main>
@@ -250,7 +290,7 @@ export default function Home() {
           onExpand={setExpanded}
           onClose={close}
         />
-        <StudentPanel page={page} token={token} zone={zone} now={now} today={today} layout={layout} onClose={close} />
+        <StudentPanel page={page} token={token} zone={zone} now={now} today={today} layout={layout} onClose={close} onOpenClass={openCode} />
         </ActivePanel.Provider>
         {/* Files and videos from either panel open over the app, never in another tab. */}
         <FileViewer />

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAction } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@compassneo/backend/api";
 import { cn } from "@/lib/glaze/utils";
 import { Field, FieldError, FieldLabel, Form } from "@/components/glaze/ui/field";
@@ -15,6 +16,35 @@ type Notice = { status: "warn" | "fail"; title: string; body: string; action?: "
 
 const requireValue = (message: string) => (v: unknown) => (String(v ?? "").trim() ? null : message);
 
+type SignInAnswer = FunctionReturnType<typeof api.auth.signIn>;
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * The sign-in, tried again on a hiccup. The server already tries Compass three times (packages/compass/src/retry.ts),
+ * so here it is the trip to Compass Neo's own server that is retried: a dropped connection or a function that timed
+ * out, twice more. Compass still not answering after the server's tries gets one more go after a short wait, as
+ * people otherwise just press the button again. An answer about the login itself (a wrong password, two-step,
+ * the rate limit) comes back at once: the server counts each try against the account's ten-minute limit.
+ */
+async function signInRetrying(call: () => Promise<SignInAnswer>): Promise<SignInAnswer> {
+  let busyRetried = false;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await call();
+      if (!r.ok && r.code === "upstream" && !busyRetried) {
+        busyRetried = true;
+        await pause(1500);
+        continue;
+      }
+      return r;
+    } catch (e) {
+      if (attempt >= 3) throw e;
+      await pause(600 * attempt + Math.random() * 400);
+    }
+  }
+}
+
 /** Who you are: the chosen school as a card you can change, then username and password. */
 export function CredentialsStep({
   focusOnMount,
@@ -25,7 +55,7 @@ export function CredentialsStep({
   focusOnMount: boolean;
   school: School;
   onChangeSchool: () => void;
-  onSignedIn: (token: string, me: Me) => void;
+  onSignedIn: (token: string, me: Me, cached: boolean) => void;
 }) {
   const signIn = useAction(api.auth.signIn);
   const [pending, setPending] = useState(false);
@@ -44,10 +74,10 @@ export function CredentialsStep({
     }
     setPending(true);
     try {
-      const r = await signIn({ slug: school.slug, username, password });
+      const r = await signInRetrying(() => signIn({ slug: school.slug, username, password }));
       if (r.ok) {
         // Stay pending: the screen hands over to the app from here.
-        onSignedIn(r.token, r.me);
+        onSignedIn(r.token, r.me, r.cached);
         return;
       }
       const show = (next: { errors?: Record<string, string>; notice?: Notice }) =>

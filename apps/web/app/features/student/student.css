@@ -41,6 +41,18 @@
 .neo-st-scroll::-webkit-scrollbar { display: none; }
 
 .neo-st-title { font: 600 calc(20px * var(--ui-scale))/1.2 var(--font-sans); letter-spacing: -0.01em; }
+
+/* The Grades page (grades.tsx): the semester as one figure, as big as the class panel's grade, and a letter grade set
+   like a figure beside how many subjects have it. */
+.neo-grade-hero { font: 600 calc(22px * var(--ui-scale))/1.15 var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.neo-grade-letter { font: 600 calc(15px * var(--ui-scale))/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
+
+/* A subject's ring with nothing marked yet (features/home/grade-rings.tsx): the track only, dashed, so it reads as
+   still to come rather than as nought. */
+.neo-ring-empty { position: absolute; inset: 4%; border-radius: 9999px; border: calc(var(--line-width, 1px) * 2) dashed var(--line-strong); }
+
+/* Every subject's ring in one row (grade-rings.tsx): as many equal columns as subjects, so nine fit a phone. */
+.neo-rings { display: grid; grid-template-columns: repeat(var(--rings, 1), minmax(0, 1fr)); justify-content: center; column-gap: var(--space-1); }
 /* The year's attendance: the one big figure, as big as the class panel's grade. */
 .neo-st-hero { font: 600 calc(22px * var(--ui-scale))/1.15 var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .neo-st-figure { font: 600 calc(15px * var(--ui-scale))/1.3 var(--font-sans); font-variant-numeric: tabular-nums; }

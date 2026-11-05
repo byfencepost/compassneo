@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { useAction } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@compassneo/backend/api";
 import { Button } from "@/components/glaze/ui/button";
 import { Icon, School, SignOut, Sync } from "@/components/glaze/icon";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/glaze/utils";
 import { focusIn, spring } from "@/lib/neo/motion";
 import { hostOf } from "@/lib/neo/schools";
 import { signOutNotice, type Me } from "@/lib/neo/session";
-import { useSyncRun } from "@/lib/neo/sync";
+import { useSyncState } from "@/lib/neo/sync";
 import { useNow } from "@/lib/neo/time";
 import { syncLabel } from "@/features/sync/sync-button";
 import { ThemeSwitch } from "./theme-switch";
@@ -70,9 +70,9 @@ export function Profile({ me, token, onSignOut }: { me: Me; token: string; onSig
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const run = useSyncRun(token);
+  const synced = useSyncState(token);
   const now = useNow();
-  const syncNow = useAction(api.sync.now);
+  const syncNow = useMutation(api.sync.now);
 
   // The card opens where the picture is: placed so the big photo inside it lands centred on the small one, and kept on
   // screen at the edges. Measured again if the window changes size while it is open.
@@ -166,7 +166,7 @@ export function Profile({ me, token, onSignOut }: { me: Me; token: string; onSig
                   </div>
                   <div className="flex items-center gap-2.5">
                     <Icon icon={Sync} className="text-text-2" />
-                    <p className="min-w-0 flex-1 type-caption text-text-2">{syncLabel(run, now)}</p>
+                    <p className="min-w-0 flex-1 type-caption text-text-2">{syncLabel(synced, now)}</p>
                   </div>
                 </div>
                 <ThemeSwitch className="mt-3" />

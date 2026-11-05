@@ -102,8 +102,31 @@ function readLoginForm(html: string, pageUrl: string) {
   return { action: new URL(decode(action ?? "/oam/server/auth_cred_submit"), pageUrl).toString(), fields };
 }
 
-/** Signs in to Connect with a DET username and password. */
-export async function connectSignIn({ username, password }: { username: string; password: string }): Promise<ConnectSession> {
+/**
+ * Whether a failed sign-in is worth trying again: the DET single sign-on's form not loading, a redirect chain that
+ * stops somewhere unexpected, Connect not starting its session, or the network dropping a request. Never a refused
+ * login or a second sign-in step: those answer the same every time, and repeating a wrong password only brings the
+ * DET lockout closer.
+ */
+export const transientConnectSignIn = (e: unknown) => (e instanceof ConnectError ? e.code === "upstream" : e instanceof Error);
+
+/**
+ * Signs in to Connect with a DET username and password. The sign-on is a chain of redirects across two hosts and
+ * trips now and then; a trip is tried again (twice, waits doubling from about a second, with jitter).
+ */
+export async function connectSignIn(login: { username: string; password: string }): Promise<ConnectSession> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await connectSignInOnce(login);
+    } catch (e) {
+      if (attempt >= 3 || !transientConnectSignIn(e)) throw e;
+      const wait = 900 * 2 ** (attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, wait / 2 + Math.random() * wait));
+    }
+  }
+}
+
+async function connectSignInOnce({ username, password }: { username: string; password: string }): Promise<ConnectSession> {
   const jar = new CookieJar();
   let { res, url } = await follow(jar, `${CONNECT_ORIGIN}/login/student`);
   let html = await res.text();

@@ -9,6 +9,9 @@ import { deviceAccount, withCompass, type Problem } from "./lib/compass";
 import { addDays, dayOf, daysBetween, isDay, schoolToday } from "./lib/days";
 import { huesFor, matchSubject, shortName, subjectName, teacherDirectory, type Person } from "./lib/match";
 import { key as teacherKey, teachersFor } from "./teachers";
+import { layAssemblies, noticesFor, type DayAssembly, type LessonAssembly } from "./lib/assemblies";
+
+export type { DayAssembly, LessonAssembly } from "./lib/assemblies";
 
 /**
  * The timetable, one school day at a time.
@@ -83,12 +86,16 @@ export type Lesson = {
   grade: Grade | null;
   /** The class's learning tasks due around this day. */
   tasks: Array<{ id: number | null; name: string; due: string | null }>;
+  /** An assembly that takes all or part of it, from the school's notices (convex/announcements.ts, lib/assemblies.ts). */
+  assembly?: LessonAssembly;
+  /** The times Compass has for it, when a notice's revised bell schedule moved it (start and finish are the new ones). */
+  timesWas?: { start: string; finish: string };
 };
 
 export type DayEvent = { id: string; title: string; start: string; finish: string; allDay: boolean };
 
 export type Day =
-  | { status: "ready"; day: string; lessons: Lesson[]; events: DayEvent[] }
+  | { status: "ready"; day: string; lessons: Lesson[]; events: DayEvent[]; assemblies?: DayAssembly[] }
   /** Not fetched yet: the client asks for it with load. */
   | { status: "missing"; day: string };
 
@@ -208,7 +215,10 @@ export function gradeFrom(g: SubjectGrade): Grade {
 /** The semester a day falls in: July on is the second. */
 export const semesterOf = (day: string): 1 | 2 => (Number(day.slice(5, 7)) >= 7 ? 2 : 1);
 
-/** One school day: its lessons, each with its teacher, colour, grades and tasks, and anything else on (tasks due). */
+/**
+ * One school day: its lessons, each with its teacher, colour, grades and tasks, anything else on (tasks due), and the
+ * assemblies the school's notices announce for it.
+ */
 export const day = query({
   args: { token: v.union(v.string(), v.null()), day: v.string() },
   handler: async (ctx, { token, day }): Promise<Day | null> => {
@@ -276,7 +286,12 @@ export const day = query({
       .filter(l => !l.isClass || l.allDay)
       .map(l => ({ id: l.id, title: l.code, start: l.start, finish: l.finish, allDay: l.allDay }));
 
-    return { status: "ready", day, lessons, events };
+    // The school's notices over it: assemblies at their times, and the lessons they take marked. Laid here, at read
+    // time, so a corrected notice (or a fresh read of one) changes the day without touching what Compass said.
+    const news = await noticesFor(ctx, account, addDays(day, -30), addDays(day, 1));
+    const laid = layAssemblies(lessons, day, news, account);
+
+    return { status: "ready", day, lessons: laid.lessons, events, assemblies: laid.assemblies };
   },
 });
 

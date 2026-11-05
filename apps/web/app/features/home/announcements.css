@@ -1,0 +1,22 @@
+/* Notices: their row on home (features/home/announcements.tsx), their page in the side panel
+   (features/student/notices.tsx) and assemblies on the day (features/timetable). The assembly cell and the mark it
+   leaves on a lesson are in timetable.css, beside the cards they sit among. */
+
+@layer components {
+/* A notice read into bullet points: a quiet disc in the third ink, the words in the second. */
+.neo-bullets { display: flex; flex-direction: column; gap: var(--space-0-5); list-style: disc; padding-inline-start: 1.15em; }
+.neo-bullets > li::marker { color: var(--text-3); }
+
+/* The summary on home's notices row: two lines at most; the rest is in the panel. */
+.neo-clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+
+/* A long notice as it was written, until "Show all": cut to about a dozen lines, the last few fading out. */
+.neo-fade-clip {
+  max-height: 16em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+/* A notice Compass marks as important: the word, in the warning ink, before its title. */
+.neo-important { color: var(--warn-text); }
+}

@@ -8,7 +8,10 @@ import "@/components/brand/brand.css";
 import "@/features/timetable/timetable.css";
 import "@/features/class/class.css";
 import "@/features/student/student.css";
+import "@/features/home/announcements.css";
 import "@/features/viewer/viewer.css";
+import "@mediansh/widget/styles.css";
+import "@/features/support/support.css";
 
 import type { Route } from "./+types/root";
 import { GlazePortalProvider } from "@/lib/glaze/portal";
@@ -17,6 +20,7 @@ import { Button } from "@/components/glaze/ui/button";
 import { NeoMark } from "@/components/brand/logo";
 import { night } from "@compassneo/brand";
 import { THEME_SCRIPT, useTheme } from "@/lib/neo/theme";
+import { Support } from "@/features/support/support";
 
 export const links: Route.LinksFunction = () => [
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
@@ -54,6 +58,7 @@ export default function App() {
       <ThemeKeeper />
       <Backend>
         <Outlet />
+        <Support />
       </Backend>
     </MotionConfig>
   );
