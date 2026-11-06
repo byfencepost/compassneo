@@ -56,8 +56,8 @@ export function TileCell({ lesson, zone, onOpen }: LessonProps) {
   const tint = classColor(lesson.hue, c);
   const pct = lesson.grade?.percent;
   return (
-    <Press onPress={onOpen} label={lessonLabel(lesson, zone)} hint={onOpen && "Opens the class"} outerStyle={{ flex: 1 }} style={{ flex: 1 }}>
-      <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: space[2], paddingHorizontal: space[4], paddingVertical: 10, minHeight: 58 }}>
+    <Press onPress={onOpen} label={lessonLabel(lesson, zone)} hint={onOpen && "Opens the class"} outerStyle={{ flex: 1 }} style={{ flexGrow: 1 }}>
+      <View style={{ flexGrow: 1, flexDirection: "row", alignItems: "flex-start", gap: space[2], paddingHorizontal: space[4], paddingVertical: 10, minHeight: 58 }}>
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
             <LessonGlyph lesson={lesson} color={tint.accent} size={14} />
