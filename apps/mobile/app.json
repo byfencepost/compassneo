@@ -21,7 +21,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.compassneo"
+      "package": "app.compassneo",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "single",

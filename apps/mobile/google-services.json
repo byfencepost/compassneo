@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "30264184379",
+    "project_id": "compass-neo-cf41a",
+    "storage_bucket": "compass-neo-cf41a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30264184379:android:ce77aa1cf26ebbdfcb961e",
+        "android_client_info": {
+          "package_name": "app.compassneo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnQzJZ18_tcMxanamFo7MF7GNWEnDGwgM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
