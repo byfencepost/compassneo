@@ -36,13 +36,23 @@ deployment as the web's `VITE_CONVEX_URL`.
 EAS builds in the cloud (`eas.json`), each profile with its own Convex URL (`.env.local` is not uploaded):
 
 ```sh
-bunx eas-cli build -p android --profile preview      # an installable APK, on prod
-bunx eas-cli build -p ios --profile production       # the App Store build, on prod; first run signs in to Apple
+bun run release apk "what's new"                     # an APK on prod, published: installed apps offer it, /android points at it
+bun run release ota "what's new"                     # JS only, over the air, to the APK and TestFlight builds
+bunx eas-cli build -p ios --profile production       # the App Store build, on prod
 bunx eas-cli submit -p ios --latest                  # to TestFlight
+bunx eas-cli build -p ios --profile development      # a dev client for registered iPhones (JS from Metro)
 ```
 
-Android's signing key lives on Expo's servers. Push on Android needs FCM credentials uploaded to EAS
-(`eas credentials`); until then turning notifications on reports it failed.
+Android is sideloaded, never on Play. It updates two ways (`convex/releases.ts`): **over the air** (`expo-updates`,
+runtime version from the native fingerprint, so an update reaches only builds it fits) for JS, and **a new APK** for
+anything native: the app compares its build number with the newest release and shows a card that downloads it
+(`src/lib/updates.ts`, `src/features/home/update-card.tsx`). The share link is
+`https://charming-alligator-791.convex.site/android`, a redirect to the newest APK.
+
+Both scripts force the prod Convex URL: `eas update` bundles on this machine, where `.env.local` is the dev one.
+
+Credentials live on EAS: Android's signing key and FCM v1 key (Firebase project `compass-neo-cf41a`;
+`google-services.json` is in the app), iOS's distribution certificate, profiles and APNs key.
 
 ## Layout
 

@@ -70,6 +70,12 @@
         "projectId": "f8fe7c52-5274-40f2-b61e-2483d528a59c"
       }
     },
-    "owner": "saltjsx"
+    "owner": "saltjsx",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f8fe7c52-5274-40f2-b61e-2483d528a59c"
+    }
   }
 }

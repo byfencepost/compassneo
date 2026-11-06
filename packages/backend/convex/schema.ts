@@ -362,4 +362,20 @@ export default defineSchema({
   })
     .index("by_slug_key", ["slug", "key"])
     .index("by_at", ["at"]),
+  /**
+   * The phone app's installable builds, newest last (releases.ts). Android is sideloaded as an APK, so the app asks
+   * here whether a newer build than its own is out, and /android redirects to the newest one.
+   */
+  releases: defineTable({
+    platform: v.literal("android"),
+    /** The native build number (Android's versionCode): what the app compares with its own. */
+    build: v.number(),
+    /** The app's version name, "1.0.0". */
+    version: v.string(),
+    /** Where the APK downloads from. */
+    url: v.string(),
+    /** One line on what's new, shown on the update card. */
+    notes: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_platform_build", ["platform", "build"]),
 });

@@ -122,9 +122,20 @@ const medianRoute = httpAction(async (ctx, req) => {
   return req.method === "POST" ? POST(req) : GET(req);
 });
 
+/**
+ * /android: the newest Android APK (releases.ts), as a redirect, so one link to share never goes stale. Before the
+ * first release there is nothing to send anyone to.
+ */
+const androidRoute = httpAction(async ctx => {
+  const r = await ctx.runQuery(internal.releases.newestUrl, {});
+  if (!r) return new Response("No Android build yet.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(null, { status: 302, headers: { Location: r, "Cache-Control": "no-store" } });
+});
+
 const http = httpRouter();
 http.route({ pathPrefix: "/file/", method: "GET", handler: fileRoute });
 http.route({ pathPrefix: "/calendar/", method: "GET", handler: calendarRoute });
+http.route({ path: "/android", method: "GET", handler: androidRoute });
 http.route({ path: "/api/median", method: "GET", handler: medianRoute });
 http.route({ path: "/api/median", method: "POST", handler: medianRoute });
 // AI access (mcp.ts): the link in the address, or as a bearer token at /mcp.

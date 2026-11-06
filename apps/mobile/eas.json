@@ -9,7 +9,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_CONVEX_URL": "https://charming-alligator-791.convex.cloud"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -18,13 +19,16 @@
       },
       "env": {
         "EXPO_PUBLIC_CONVEX_URL": "https://charming-alligator-791.convex.cloud"
-      }
+      },
+      "channel": "preview",
+      "autoIncrement": true
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_CONVEX_URL": "https://charming-alligator-791.convex.cloud"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {

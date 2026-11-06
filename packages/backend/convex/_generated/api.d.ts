@@ -54,6 +54,7 @@ import type * as overview from "../overview.js";
 import type * as plans from "../plans.js";
 import type * as pools from "../pools.js";
 import type * as push from "../push.js";
+import type * as releases from "../releases.js";
 import type * as resources from "../resources.js";
 import type * as schools from "../schools.js";
 import type * as sync from "../sync.js";
@@ -114,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   plans: typeof plans;
   pools: typeof pools;
   push: typeof push;
+  releases: typeof releases;
   resources: typeof resources;
   schools: typeof schools;
   sync: typeof sync;

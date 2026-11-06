@@ -20,6 +20,7 @@ import { TodoPreview } from "@/features/todo/todo-preview";
 import { NoticesRow } from "@/features/notices/notices-row";
 import { StudentShortcuts } from "@/features/student/shortcuts";
 import { GuestHome } from "@/features/guest/guest-home";
+import { UpdateCard } from "@/features/home/update-card";
 
 /** Home: the whole app on one page, as on the web. With a guest on (lib/guest.ts), their day instead. */
 export default function HomeRoute() {
@@ -36,7 +37,7 @@ export default function HomeRoute() {
  * the photo that opens settings, all in the native navigation bar: features/home/top-bar.tsx), the day's classes, the
  * day picker under them, grades, what's to do, the classes, notices, then attendance, events and Chronicle. Each of
  * those is a row or a minimized section that opens its own page. Today follows the clock; a day picked stays picked.
- * Pulling down syncs the timetable now.
+ * Pulling down syncs the timetable now. A newer app than this one, when there is one, says so at the top.
  */
 function Home({ me, token }: { me: Me; token: string }) {
   const zone = zoneOf(me.slug);
@@ -74,6 +75,7 @@ function Home({ me, token }: { me: Me; token: string }) {
     <>
       <Stack.Screen options={bar} />
       <Screen refreshing={pull.refreshing} onRefresh={() => void pull.refresh()} contentStyle={{ gap: space[5] }}>
+        <UpdateCard />
         <View style={{ gap: space[3] }}>
           <DayView dayKey={day} today={today} shown={shown} now={now} zone={zone} dir={dir} onOpen={open} onMove={swiped} onGoTo={goTo} />
           <DayPicker day={day} today={today} summary={shown.day ? daySummary(shown.day, zone) : null} onMove={move} onToday={() => goTo(today)} />
