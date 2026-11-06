@@ -9,7 +9,7 @@ import {
   FileImageIcon, FileSpreadsheetIcon, FileTextIcon, FolderIcon, FolderOpenIcon, FolderWithFilesIcon, FileVideoCameraIcon, FileZipIcon, FilterIcon, ForwardIcon, GlobalIcon, GraphUpIcon,
   HashtagIcon, HeartPulseIcon, HomeSmileIcon, HourglassIcon, InboxIcon, InfoCircleIcon, KeyIcon, LeafIcon, LinkIcon,
   LockIcon, LogoutIcon, MagnifierIcon, MapPointIcon, MaskHappyIcon, MaximizeSquareIcon, MedalRibbonStarIcon,
-  MenuDotsIcon, MicrophoneIcon, MinimizeSquareIcon, MinusIcon, MonitorSmartphoneIcon, MoonIcon, MusicNotesIcon,
+  MenuDotsIcon, MicrophoneIcon, MinimizeSquareIcon, MinusIcon, MonitorSmartphoneIcon, MoonIcon, SmartphoneIcon, MusicNotesIcon,
   MutedIcon, NotebookIcon, PaletteIcon, PaperclipIcon, PauseIcon, PenIcon, PlayCircleIcon, PlayIcon, PresentationGraphIcon, ProgrammingIcon, RefreshIcon,
   RulerPenIcon, ScaleIcon, SendSquareIcon, SettingsIcon, ShieldCrossIcon, SquareAcademicCapIcon, SquareShareLineIcon,
   StarsIcon, StopIcon, SunIcon, SunsetIcon, TableIcon, TestTubeIcon, ToolboxIcon,
@@ -169,6 +169,8 @@ export const SubjectBusiness = CaseIcon;
 export const SubjectOther = BookBookmarkIcon;
 /** Compass Neo: the theme that follows the device. */
 export const AutoTheme = MonitorSmartphoneIcon;
+/** Compass Neo: the phone app (the profile card's links to it). */
+export const Phone = SmartphoneIcon;
 export const Show = EyeIcon;
 export const Sparkle = StarsIcon;
 export const Stop = StopIcon;

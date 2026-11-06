@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/glaze/ui/button";
-import { Icon, People, School, Settings, SignOut, Sync } from "@/components/glaze/icon";
+import { Icon, People, Phone, School, Settings, SignOut, Sync } from "@/components/glaze/icon";
 import { cn } from "@/lib/glaze/utils";
 import { focusIn, spring } from "@/lib/neo/motion";
 import { hostOf } from "@/lib/neo/schools";
 import type { Me } from "@/lib/neo/session";
 import { useSyncState } from "@/lib/neo/sync";
 import { useNow } from "@/lib/neo/time";
+import { convexUrl } from "@/lib/neo/backend";
 import { syncLabel } from "@/features/sync/sync-button";
 
 /** The card's padding and its photo, in px (p-4, size-11), so the photo can land on the picture it grew from. */
@@ -18,6 +19,13 @@ const FACE_BIG = 44;
 const CARD_RADIUS = 14;
 /** The least room left between the card and the screen's edge. */
 const EDGE = 12;
+
+/**
+ * The phone app, one link per platform on the deployment's site URL (convex/http.ts): /ios redirects to the TestFlight
+ * beta, /android to the newest APK (convex/releases.ts). The links never change, so the card never goes stale.
+ */
+const site = convexUrl?.replace(/\.convex\.cloud\/?$/, ".convex.site");
+const appLinks = site ? [{ label: "iPhone", href: `${site}/ios` }, { label: "Android", href: `${site}/android` }] : [];
 
 const initials = (name: string) =>
   name
@@ -61,7 +69,7 @@ export function Face({
 /**
  * The profile picture in the corner. Pressing it grows the circle into a card (they share a motion name), and who is
  * signed in, where, the last sync and the ways on (guest mode, settings, signing out) come into focus inside it.
- * Pressing outside, Escape or the photo shrinks it back into the circle. Everything to change lives on the settings
+ * Links to the phone app sit under them. Pressing outside, Escape or the photo shrinks it back into the circle. Everything to change lives on the settings
  * page, not here. Guest mode lets a friend check their own timetable on this device (features/guest).
  */
 export function Profile({
@@ -170,6 +178,17 @@ export function Profile({
                     <p className="min-w-0 flex-1 type-caption text-text-2">{syncLabel(synced, now)}</p>
                   </div>
                 </div>
+                {appLinks.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2.5 border-t border-line-faint pt-3">
+                    <Icon icon={Phone} className="text-text-2" />
+                    <p className="me-auto type-caption text-text-2">Get the app</p>
+                    {appLinks.map(l => (
+                      <Button key={l.label} size="sm" variant="secondary" render={<a href={l.href} target="_blank" rel="noreferrer" />} nativeButton={false}>
+                        {l.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-3 flex flex-col gap-2">
                   <Button size="sm" variant="secondary" className="w-full" onClick={onGuest}>
                     <Icon icon={People} />
