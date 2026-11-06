@@ -132,10 +132,18 @@ const androidRoute = httpAction(async ctx => {
   return new Response(null, { status: 302, headers: { Location: r, "Cache-Control": "no-store" } });
 });
 
+/**
+ * /ios: the iPhone beta, TestFlight's public link (the "Public" group in App Store Connect). It takes testers once Apple's
+ * beta review has passed; before that TestFlight says the beta isn't accepting anyone. One link to share, like /android.
+ */
+const TESTFLIGHT = "https://testflight.apple.com/join/vXey4HyR";
+const iosRoute = httpAction(async () => new Response(null, { status: 302, headers: { Location: TESTFLIGHT, "Cache-Control": "no-store" } }));
+
 const http = httpRouter();
 http.route({ pathPrefix: "/file/", method: "GET", handler: fileRoute });
 http.route({ pathPrefix: "/calendar/", method: "GET", handler: calendarRoute });
 http.route({ path: "/android", method: "GET", handler: androidRoute });
+http.route({ path: "/ios", method: "GET", handler: iosRoute });
 http.route({ path: "/api/median", method: "GET", handler: medianRoute });
 http.route({ path: "/api/median", method: "POST", handler: medianRoute });
 // AI access (mcp.ts): the link in the address, or as a bearer token at /mcp.
