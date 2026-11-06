@@ -10,7 +10,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_CONVEX_URL": "https://quiet-jaguar-147.convex.cloud"
+        "EXPO_PUBLIC_CONVEX_URL": "https://charming-alligator-791.convex.cloud"
       }
     },
     "production": {

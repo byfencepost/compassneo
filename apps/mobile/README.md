@@ -36,7 +36,7 @@ deployment as the web's `VITE_CONVEX_URL`.
 EAS builds in the cloud (`eas.json`), each profile with its own Convex URL (`.env.local` is not uploaded):
 
 ```sh
-bunx eas-cli build -p android --profile preview      # an installable APK, on the dev deployment
+bunx eas-cli build -p android --profile preview      # an installable APK, on prod
 bunx eas-cli build -p ios --profile production       # the App Store build, on prod; first run signs in to Apple
 bunx eas-cli submit -p ios --latest                  # to TestFlight
 ```
