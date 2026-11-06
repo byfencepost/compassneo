@@ -18,13 +18,15 @@ export type Result<T> = { ok: true; value: T } | Problem;
 
 /**
  * The account a device's token is for, noting the device as used. An AI's link (lib/agent.ts) is taken only by an
- * action that asks for a reader: one that fetches what a page shows, and changes nothing a student did.
+ * action that asks for a reader: one that fetches what a page shows, and changes nothing a student did. A guest's
+ * sign-in (auth.ts, guest mode) only by one that asks for a guest: fetching the timetable.
  */
-export async function deviceAccount(ctx: ActionCtx, token: string, opts?: { reader?: boolean }) {
+export async function deviceAccount(ctx: ActionCtx, token: string, opts?: { reader?: boolean; guest?: boolean }) {
   if (isAgentToken(token)) return opts?.reader ? ctx.runQuery(internal.mcp.accountOf, { token }) : null;
   const found = await ctx.runQuery(internal.accounts.byTokenHash, { tokenHash: await hashToken(token) });
-  if (found) await ctx.runMutation(internal.accounts.touch, { sessionId: found.session._id });
-  return found?.account ?? null;
+  if (!found || (found.session.guest && !opts?.guest)) return null;
+  await ctx.runMutation(internal.accounts.touch, { sessionId: found.session._id });
+  return found.account;
 }
 
 export async function storedLogin(account: Doc<"accounts">): Promise<Login | null> {

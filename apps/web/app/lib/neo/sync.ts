@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "./live";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@compassneo/backend/api";
 import { motionMs } from "./schools";
@@ -10,7 +10,7 @@ import { signOutNotice } from "./session";
  * The account's syncs (convex/sync.ts). Each run waits its turn in a pool on the server, then its steps run one after
  * another, Compass first, then Connect at a WA school; each lands in the run as it starts and ends. The app shows only
  * how far along a run is, and only for runs someone is watching (a sign-in, opening the app, "Sync now"): the quiet
- * ones (an open tab's minute sync, the background's quarter hour) just move "Synced 2 minutes ago" on.
+ * ones (an open tab's five-minute sync, the background's) just move "Synced 2 minutes ago" on.
  */
 
 export type SyncState = NonNullable<FunctionReturnType<typeof api.sync.latest>>;
@@ -27,6 +27,15 @@ const ALIVE_STALE = 10 * 60 * 1000;
 
 /** Opening the app again after this long away counts as opening it: the gauge shows the sync it asks for. */
 const AWAY = 15 * 60 * 1000;
+
+/**
+ * How often a tab in front of someone asks for a sync, give or take ACTIVE_JITTER. Each ask the server grants is a
+ * run (a quick one: the week's timetable, tasks, news), and every row it changes runs the open queries again, so this
+ * is kept to what a person would notice: a room change shows within five minutes.
+ */
+const ACTIVE_EVERY = 5 * 60 * 1000;
+const ACTIVE_JITTER = 30 * 1000;
+const nextAsk = () => ACTIVE_EVERY - ACTIVE_JITTER + Math.random() * 2 * ACTIVE_JITTER;
 
 /** The latest watched run and the latest finished one. */
 export const useSyncState = (token: string | null) => useQuery(api.sync.latest, { token });
@@ -71,20 +80,28 @@ export function usePacedSync(run: SyncRun | null | undefined) {
 
 /**
  * Keeps the signed-in account synced while the app is open. On opening it asks for an "open" sync; then, while the tab
- * is in front of someone, an "active" one about once a minute: first at a random point in the first minute and a half,
- * then every 55 to 65 seconds, so devices opened together drift apart instead of asking in step. A hidden tab asks
- * nothing; shown again it asks at once (as an "open" after a quarter hour away, so the gauge shows it). The server
+ * is in front of someone, an "active" one about every five minutes (ACTIVE_EVERY): first at a random point in the
+ * first five, then every four and a half to five and a half, so devices opened together drift apart instead of asking
+ * in step. A hidden tab asks nothing; shown again it asks at once (as an "open" after a quarter hour away, so the
+ * gauge shows it). The server
  * decides what each ask gets: a full run, a quick one, or nothing (convex/sync.ts).
  *
  * If the account was forgotten behind this device's back (its stored login stopped working, maybe in a background sync),
- * the farewell it left says why, and the sign-in screen shows it.
+ * the farewell it left says why, and the sign-in screen shows it. A guest's home (features/guest) keeps the guest's
+ * account synced the same way, and hears of it going through onGone instead: it is not the device's own sign-in.
  */
-export function useAutoSync(token: string | null) {
+export function useAutoSync(token: string | null, opts?: { onGone?: (message: string) => void }) {
   const syncNow = useMutation(api.sync.now);
   const farewell = useQuery(api.accounts.farewell, { token });
+  const gone = useRef(opts?.onGone);
+  useEffect(() => {
+    gone.current = opts?.onGone;
+  });
 
   useEffect(() => {
-    if (farewell) signOutNotice.set(farewell.message);
+    if (!farewell) return;
+    if (gone.current) gone.current(farewell.message);
+    else signOutNotice.set(farewell.message);
   }, [farewell]);
 
   useEffect(() => {
@@ -95,7 +112,9 @@ export function useAutoSync(token: string | null) {
     const ask = (reason: "open" | "active") =>
       void syncNow({ token, reason })
         .then(r => {
-          if (!r.ok && (r.code === "signed-out" || r.code === "password-changed")) signOutNotice.set(r.message);
+          if (r.ok || (r.code !== "signed-out" && r.code !== "password-changed")) return;
+          if (gone.current) gone.current(r.message);
+          else signOutNotice.set(r.message);
         })
         .catch(() => {});
     const after = (ms: number) => {
@@ -103,7 +122,7 @@ export function useAutoSync(token: string | null) {
       timer = window.setTimeout(() => {
         if (document.visibilityState !== "visible") return;
         ask("active");
-        after(55_000 + Math.random() * 10_000);
+        after(nextAsk());
       }, ms);
     };
     const onVisibility = () => {
@@ -115,11 +134,11 @@ export function useAutoSync(token: string | null) {
       const away = hiddenAt != null && Date.now() - hiddenAt > AWAY;
       hiddenAt = null;
       ask(away ? "open" : "active");
-      after(55_000 + Math.random() * 10_000);
+      after(nextAsk());
     };
 
     ask("open");
-    if (document.visibilityState === "visible") after(30_000 + Math.random() * 60_000);
+    if (document.visibilityState === "visible") after(Math.random() * ACTIVE_EVERY);
     else hiddenAt = Date.now();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {

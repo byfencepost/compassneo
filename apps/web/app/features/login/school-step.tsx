@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAction } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "@/lib/neo/live";
 import { api } from "@compassneo/backend/api";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/glaze/ui/field";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/glaze/ui/combobox";

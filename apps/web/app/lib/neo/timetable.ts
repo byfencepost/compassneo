@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useAction } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "./live";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@compassneo/backend/api";
 import { persisted } from "./store";
@@ -29,7 +29,12 @@ const kept = persisted<Kept | null>("cneo.days.v1", null);
 /** Signing out takes the kept days with it. */
 export const forgetDays = () => kept.set(null);
 
-export function useDay(token: string | null, day: string): { day: ReadyDay | null; loading: boolean } {
+/**
+ * keep: false is a guest's (lib/neo/session.ts guestStore): their days are never kept on the device, so none of them is
+ * left behind when they sign out, and the device's own kept days stay as they were.
+ */
+export function useDay(token: string | null, day: string, opts?: { keep?: boolean }): { day: ReadyDay | null; loading: boolean } {
+  const keep = opts?.keep ?? true;
   const live = useQuery(api.timetable.day, token ? { token, day } : "skip");
   const load = useAction(api.timetable.load);
   const asked = useRef(new Set<string>());
@@ -41,13 +46,14 @@ export function useDay(token: string | null, day: string): { day: ReadyDay | nul
     asked.current.add(day);
     void load({ token, day })
       .then(r => {
-        if (!r.ok && (r.code === "signed-out" || r.code === "password-changed")) signOutNotice.set(r.message);
+        // A guest's sign-in that has gone is the guest's business: guest mode ends by itself (useGuest).
+        if (keep && !r.ok && (r.code === "signed-out" || r.code === "password-changed")) signOutNotice.set(r.message);
       })
       .catch(() => {});
-  }, [token, day, live?.status, load]);
+  }, [token, day, live?.status, load, keep]);
 
   useEffect(() => {
-    if (live?.status !== "ready") return;
+    if (!keep || live?.status !== "ready") return;
     const prev = kept.get();
     if (prev?.owner === owner && JSON.stringify(prev.days[day]) === JSON.stringify(live)) return;
     const days = prev?.owner === owner ? { ...prev.days, [day]: live } : { [day]: live };
@@ -56,11 +62,11 @@ export function useDay(token: string | null, day: string): { day: ReadyDay | nul
       .sort((a, b) => Math.abs(Date.parse(a) - Date.parse(day)) - Math.abs(Date.parse(b) - Date.parse(day)))
       .slice(0, KEEP);
     kept.set({ owner, days: Object.fromEntries(near.map(d => [d, days[d]!])) });
-  }, [live, day, owner]);
+  }, [live, day, owner, keep]);
 
   const stored = kept.use();
   if (live?.status === "ready") return { day: live, loading: false };
-  const cached = stored?.owner === owner ? (stored.days[day] ?? null) : null;
+  const cached = keep && stored?.owner === owner ? (stored.days[day] ?? null) : null;
   return { day: cached, loading: !cached };
 }
 

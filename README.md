@@ -39,6 +39,9 @@
 - **Your timetable in your own calendar.** A link your phone's calendar subscribes to, with what Compass's own feed
   leaves out: room changes, relief teachers, assemblies in place of the lessons they take, and when work is due.
 - **Stays signed in.** Compass signs everyone out daily. Compass Neo doesn't.
+- **Guest mode.** A friend without their phone can check their own timetable on yours, relief teachers and room
+  changes included, while you stay signed in underneath (from the profile photo: the menu on the web, Settings on the
+  phone). A banner at the top signs them out with one press.
 - **Pretty.** Dark (by default), light or auto, springy motion, and a colour for every class.
 
 ## Privacy and security
@@ -57,6 +60,10 @@ Compass Neo has to sign in to Compass as you, so here is exactly what it keeps:
   your password, used only to read, and deleted when you remove Canvas or sign out of your last device. Deleting the
   token in Canvas stops it working at once.
 - Sign-in attempts are rate limited.
+- A **guest's sign-in** (guest mode) reads their timetable and nothing else: their marks are left off it, and their
+  grades, work, files and notifications are refused to it. It ends by itself eight hours after it began if nobody signs
+  it out. Their days are never kept on the device, and the browser or phone is asked not to fill in or save the
+  password. Signing a guest out is signing out of a device: if it was their only one, their account goes with it.
 - The **school's notices** (its news feed, never anything of yours) are sent to Anthropic's Claude API to be read into
   bullet points, once per notice per school, when the server has an API key.
 
@@ -70,6 +77,7 @@ first. Nothing is ever handed in on Canvas: its work opens on Canvas.
 
 ```
 apps/web            React Router 8 (SPA mode), Glaze design system retuned for Compass Neo
+apps/mobile         Expo SDK 58 (React Native, expo-router), runs in Expo Go: the phone app (apps/mobile/README.md)
 packages/backend    Convex: school directory, sign-in, sessions, sync, caches
 packages/compass    fetch-only Compass client, shared by every runtime (Convex, and later phone and watch)
 packages/connect    fetch-only client for WA DET Connect (grades, content, submissions), same login as Compass
@@ -87,6 +95,7 @@ design system. Hosted on Vercel.
 bun install
 bun run dev:backend      # convex dev, in packages/backend (sign in to Convex the first time)
 bun run dev              # web on http://localhost:5175
+bun run dev:mobile       # phone app in Expo Go, served at https://8081.fent.cloud (exps://8081.fent.cloud)
 ```
 
 `apps/web/.env.local` needs `VITE_CONVEX_URL` (the `CONVEX_URL` from `packages/backend/.env.local`), and `VITE_MEDIAN_PUBLIC_KEY` (the `median_pk_...` half of the Median key, safe in a browser) for the help button.

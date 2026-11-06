@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/glaze/ui/button";
-import { Icon, School, Settings, SignOut, Sync } from "@/components/glaze/icon";
+import { Icon, People, School, Settings, SignOut, Sync } from "@/components/glaze/icon";
 import { cn } from "@/lib/glaze/utils";
 import { focusIn, spring } from "@/lib/neo/motion";
 import { hostOf } from "@/lib/neo/schools";
@@ -60,10 +60,23 @@ export function Face({
 
 /**
  * The profile picture in the corner. Pressing it grows the circle into a card (they share a motion name), and who is
- * signed in, where, the last sync and the ways on (settings, signing out) come into focus inside it. Pressing outside,
- * Escape or the photo shrinks it back into the circle. Everything to change lives on the settings page, not here.
+ * signed in, where, the last sync and the ways on (guest mode, settings, signing out) come into focus inside it.
+ * Pressing outside, Escape or the photo shrinks it back into the circle. Everything to change lives on the settings
+ * page, not here. Guest mode lets a friend check their own timetable on this device (features/guest).
  */
-export function Profile({ me, token, onSettings, onSignOut }: { me: Me; token: string; onSettings: () => void; onSignOut: () => void }) {
+export function Profile({
+  me,
+  token,
+  onGuest,
+  onSettings,
+  onSignOut,
+}: {
+  me: Me;
+  token: string;
+  onGuest: () => void;
+  onSettings: () => void;
+  onSignOut: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -157,15 +170,21 @@ export function Profile({ me, token, onSettings, onSignOut }: { me: Me; token: s
                     <p className="min-w-0 flex-1 type-caption text-text-2">{syncLabel(synced, now)}</p>
                   </div>
                 </div>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="secondary" className="flex-1" onClick={onSettings}>
-                    <Icon icon={Settings} />
-                    Settings
+                <div className="mt-3 flex flex-col gap-2">
+                  <Button size="sm" variant="secondary" className="w-full" onClick={onGuest}>
+                    <Icon icon={People} />
+                    Guest mode
                   </Button>
-                  <Button size="sm" variant="secondary" className="flex-1" onClick={onSignOut}>
-                    <Icon icon={SignOut} />
-                    Sign out
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={onSettings}>
+                      <Icon icon={Settings} />
+                      Settings
+                    </Button>
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={onSignOut}>
+                      <Icon icon={SignOut} />
+                      Sign out
+                    </Button>
+                  </div>
                 </div>
               </motion.div>
             </motion.div>

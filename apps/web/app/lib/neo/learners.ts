@@ -1,5 +1,5 @@
 import { useAction } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "./live";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@compassneo/backend/api";
 import { useLoadOnce } from "./loads";

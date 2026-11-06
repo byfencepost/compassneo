@@ -14,13 +14,15 @@ import {
 } from "@compassneo/canvas";
 import { deviceAccount, type Problem } from "./lib/compass";
 import { seal } from "./lib/crypto";
-import { same, STAMP_EVERY } from "./lib/same";
+import { same } from "./lib/same";
 import { accountFor, semesterOf } from "./timetable";
 import { begin } from "./sync";
 import { canvasGrades } from "./lib/grades";
 import { recordGrades, type History } from "./lib/history";
 import { schoolToday } from "./lib/days";
 import { canvasView, currentClasses } from "./lib/courses";
+import { storeRow } from "./connect";
+import { isNewWork, shortClass, tellGrades, tellWork, tooMany } from "./marks";
 
 /**
  * Canvas, beside Compass: a student whose school runs Canvas adds it from their profile with the school's Canvas
@@ -226,20 +228,59 @@ function split(assignments: CanvasAssignment[], groups: CanvasGroup[], now: numb
   return { work: { assignments: recent.map(lean), groups, marks } satisfies CanvasWork, text };
 }
 
-/** One course's assignments and groups, kept as its work row and its text row. */
+/** One course's assignments and groups, kept as its work row (keepWork) and its text row. */
 export async function fetchCourseWork(ctx: ActionCtx, account: Doc<"accounts">, s: CanvasSession, courseId: string) {
   try {
     const [assignments, groups] = await Promise.all([s.getAssignments(courseId), s.getGroups(courseId).catch(() => [] as CanvasGroup[])]);
     const { work: data, text } = split(assignments, groups, Date.now());
     await put(ctx, account._id, textKind(courseId), { data: text });
-    await put(ctx, account._id, workKind(courseId), { data });
+    await ctx.runMutation(internal.canvas.keepWork, { accountId: account._id, courseId, data });
     return data;
   } catch (e) {
     if (e instanceof CanvasError && e.code === "bad-token") throw e;
-    await put(ctx, account._id, workKind(courseId), { error: e instanceof Error && e.message ? e.message : "Canvas did not answer." });
+    await ctx.runMutation(internal.canvas.keepWork, { accountId: account._id, courseId, error: e instanceof Error && e.message ? e.message : "Canvas did not answer." });
     return null;
   }
 }
+
+/**
+ * A course's work row kept, and the student told of assignments newly in it, with a date still to come and not handed
+ * in (convex/marks.ts; undated ones are left out, as the to-do list leaves them). Nothing is told the first time the
+ * course's work is kept. Marks are told from the grade history instead (keepGrades).
+ */
+export const keepWork = internalMutation({
+  args: { accountId: v.id("accounts"), courseId: v.string(), data: v.optional(v.any()), error: v.optional(v.string()) },
+  handler: async (ctx, { accountId, courseId, data, error }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return;
+    const before = await storeRow(ctx, "canvasCache", accountId, workKind(courseId), data !== undefined ? { data } : { error });
+    const was = before?.data as CanvasWork | undefined;
+    const work = data as CanvasWork | undefined;
+    if (!was?.assignments || !work?.assignments) return;
+    const now = Date.now();
+    const known = new Set([...was.assignments, ...(was.marks ?? [])].map(a => a.id));
+    const set = work.assignments.filter(a => {
+      if (known.has(a.id) || !a.due || !isNewWork(a.due, null, now)) return false;
+      const state = canvasState(a, now);
+      return state === "todo" || state === "none";
+    });
+    if (!set.length || tooMany(set)) return;
+
+    // The class each is for, as the to-do list and the class's Work have it (lib/courses.ts).
+    const current = await currentClasses(ctx, account);
+    const view = await canvasView(ctx, account, current);
+    const course = view?.courses.find(c => c.id === courseId);
+    await tellWork(
+      ctx,
+      account,
+      set.map(a => {
+        const code = view?.classOf(a) ?? null;
+        const c = code ? current.find(k => k.code === code) : undefined;
+        return { key: `work:canvas:${a.id}`, code: c?.code ?? null, className: c ? shortClass(c) : (course?.name ?? "Canvas"), task: a.name, due: a.due };
+      }),
+    );
+  },
+});
 
 /**
  * Every course's assignments, a course at a time. A course Canvas will not show is kept as its error and the rest
@@ -297,12 +338,11 @@ export const keepGrades = internalMutation({
     };
     const subjects = canvasGrades(courses, works, semesterOf(schoolToday(account.slug)), home, new Set(view?.codeOf.keys() ?? []));
     const now = Date.now();
-    // The same again is not written, bar the time once it is STAMP_EVERY old (lib/same.ts).
+    // The same again is not written, not even its time (cache.ts put says why).
     const put = async (kind: string, data: unknown) => {
       const r = await row(kind);
       if (!r) await ctx.db.insert("canvasCache", { accountId, kind, data, fetchedAt: now, checkedAt: now });
       else if (r.error !== undefined || !same(r.data, data)) await ctx.db.patch(r._id, { data, error: undefined, fetchedAt: now, checkedAt: now });
-      else if (now - r.checkedAt > STAMP_EVERY) await ctx.db.patch(r._id, { fetchedAt: now, checkedAt: now });
     };
     await put("grades", subjects);
     const kept = await row("history");
@@ -310,6 +350,8 @@ export const keepGrades = internalMutation({
     const prior = (kept?.data as History | undefined) ?? null;
     const history = { ...recordGrades(prior?.canvasReading === CANVAS_READING ? prior : null, subjects, now), canvasReading: CANVAS_READING };
     if (!kept || !same(kept.data, history)) await put("history", history);
+    // A mark the history dates now is news (convex/marks.ts); with no history before, every mark is baseline.
+    if (kept?.data) await tellGrades(ctx, account, "canvas", subjects, history, now);
     return subjects.length;
   },
 });

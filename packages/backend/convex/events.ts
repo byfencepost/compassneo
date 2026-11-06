@@ -66,7 +66,7 @@ export const get = query({
     const leads = await teachersFor(ctx, account.slug, [...groups.values()].map(l => l[0]!.lead));
     // Staff codes to names, from every full name Compass Neo has seen: Chronicle's authors, Connect's staff and notices.
     const chronicle = ((await readRow(ctx, account._id, "compass", "chronicle"))?.data as { entries?: ChronicleEntry[] } | null)?.entries ?? [];
-    const grades = ((await gradeRows(ctx, account)).grades?.data ?? []) as SubjectGrade[];
+    const grades = ((await gradeRows(ctx, account, { history: false })).grades?.data ?? []) as SubjectGrade[];
     const notices = ((await readRow(ctx, account._id, "connect", "notices"))?.data ?? []) as ConnectNotice[];
     const directory = teacherDirectory([
       ...chronicle.map(x => x.by),

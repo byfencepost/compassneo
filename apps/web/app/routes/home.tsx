@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, PrefetchPageLinks, useNavigate, useSearchParams } from "react-router";
 import { LayoutGroup, motion, type PanInfo } from "motion/react";
 import type { Route } from "./+types/home";
-import { signOutNotice, useSession, useSignOut } from "@/lib/neo/session";
+import { signOutNotice, useGuest, useSession, useSignOut } from "@/lib/neo/session";
 import { NeoMark } from "@/components/brand/logo";
 import { Button } from "@/components/glaze/ui/button";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/glaze/ui/alert";
@@ -29,6 +29,7 @@ import { Announcements } from "@/features/home/announcements";
 import { lessonOfClass, useClassList, type ListedClass } from "@/lib/neo/classlist";
 import { FileViewer } from "@/features/viewer/file-viewer";
 import { spring } from "@/lib/neo/motion";
+import { GuestHome } from "@/features/guest/guest-home";
 
 /** What the support agent may open by address (see the effect in Home). */
 const PAGE_NAMES: StudentPage[] = ["grades", "attendance", "events", "chronicle", "notices"];
@@ -43,12 +44,23 @@ const SWIPE_PX = 70;
 const SWIPE_SPEED = 500;
 
 /**
+ * Home: the device's own, or, while a guest is on (guest mode, features/guest), the guest's day under its banner and
+ * nothing else. A guest only ever borrows a signed-in device: without its own session, it goes to sign-in as ever.
+ */
+export default function Home() {
+  const session = useSession();
+  const guest = useGuest();
+  if (guest && session.status !== "signed-out") return <GuestHome guest={guest} />;
+  return <OwnHome />;
+}
+
+/**
  * Where a signed-in person lands: the day's classes, biggest first, under the mark, the sync gauge and their photo.
  * The dock at the foot moves a day either way and back to today; so do a swipe, the arrow keys and T. A class opens
  * in the panel at the side (features/class): on a wide screen the day moves aside for it, on a phone it covers the
  * screen. It stays open while the days turn; pressing the same class again, Escape or its close button shuts it.
  */
-export default function Home() {
+function OwnHome() {
   const session = useSession();
   const signOut = useSignOut();
   const navigate = useNavigate();
@@ -202,6 +214,7 @@ export default function Home() {
   };
   const signInAgain = () => leave(`/login/${me.slug}`);
   const openSettings = () => void morphRoute(() => navigate("/settings", { flushSync: true }), "settings");
+  const openGuest = () => void morphRoute(() => navigate("/guest", { flushSync: true }), "guest");
 
   const swiped = (_: unknown, info: PanInfo) => {
     if (info.offset.x < -SWIPE_PX || info.velocity.x < -SWIPE_SPEED) move(1);
@@ -210,9 +223,10 @@ export default function Home() {
 
   return (
     <div data-route="home" className="min-h-dvh bg-page">
-      {/* The login and settings routes' code is fetched ahead, so going to either morphs without waiting on the network. */}
+      {/* The login, settings and guest routes' code is fetched ahead, so going to any morphs without waiting on the network. */}
       <PrefetchPageLinks page="/login" />
       <PrefetchPageLinks page="/settings" />
+      <PrefetchPageLinks page="/guest" />
       <LayoutGroup>
         {/* On a wide screen the day moves aside for the class panel: the page's right padding springs to the panel's
             width as it slides in, on the same spring, so the day stays centred in what is left. */}
@@ -226,7 +240,7 @@ export default function Home() {
               <div className="ms-auto flex items-center gap-1.5">
                 <SupportButton />
                 <SyncButton token={token} />
-                <Profile me={me} token={token} onSettings={openSettings} onSignOut={() => void leave()} />
+                <Profile me={me} token={token} onGuest={openGuest} onSettings={openSettings} onSignOut={() => void leave()} />
               </div>
             </div>
           </header>

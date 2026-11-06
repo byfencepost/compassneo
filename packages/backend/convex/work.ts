@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, internalQuery, mutation, query, type ActionCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getTasks, submissionPath, assetPath, submitTask, uploadFile, type CompassTask, type CompassSession } from "@compassneo/compass";
@@ -19,13 +19,17 @@ import { fileLink } from "./lib/links";
 import { parsePlan, type PlanBlock } from "./lib/plan";
 import { classTarget } from "./lib/target";
 import { hashToken } from "./lib/crypto";
-import { accountFor } from "./timetable";
+import { accountFor, compassRow, type StoredClass } from "./timetable";
 import { readRow, sideOf, type Side } from "./cache";
 import { lastLessons, type LastLesson } from "./lib/lessons";
 import type { CanvasAssignment } from "@compassneo/canvas";
 import { canvasState, fetchCourseWork, textKind as canvasTextKind, workKind as canvasWorkKind } from "./canvas";
 import { withCanvas } from "./lib/canvas";
 import { canvasView, currentClasses } from "./lib/courses";
+import { connectCodes } from "./lib/subjects";
+import { keepRow } from "./sync";
+import { storeRow } from "./connect";
+import { isNewWork, resultText, shortClass, tellMarks, tellWork, tooMany } from "./marks";
 
 /**
  * Work to do for a class, from every side, and handing it in: Compass's learning tasks (instructions, attachments, the
@@ -34,6 +38,9 @@ import { canvasView, currentClasses } from "./lib/courses";
  * names the class: lib/courses.ts). Compass's come with every sync (the tasks step); Connect's are fetched when the
  * class panel asks (load), with the student's own entry on each; Canvas's with every full sync and by load. Canvas's
  * are read-only here: they open on Canvas to be handed in.
+ *
+ * What is new when they are kept is told (convex/marks.ts): a task or submission newly set (keepTasks, storeBoard), a
+ * task's result newly back (keepTasks), which also asks the student's classmates to look for theirs.
  *
  * Handing in writes to Compass or Connect exactly as their own upload windows do. The file goes to Convex storage
  * first (uploadUrl), so the action can pass it on, and is deleted from storage once handed in.
@@ -101,7 +108,6 @@ export async function storeTasks(ctx: ActionCtx, accountId: Id<"accounts">, task
     .map(t => ({ id: t.id, className: t.className, name: t.name, due: t.due, status: t.me?.status ? STATUS_CODE[t.me.status] : null }))
     .filter(t => !t.due || t.due >= since)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-  await ctx.runMutation(internal.sync.keep, { accountId, kind: "tasks", data: short });
 
   const keepFrom = new Date(now - KEEP_DAYS * 86400 * 1000).toISOString();
   const full = tasks
@@ -109,8 +115,53 @@ export async function storeTasks(ctx: ActionCtx, accountId: Id<"accounts">, task
     .sort((a, b) => (b.due ?? "9999").localeCompare(a.due ?? "9999"))
     .slice(0, MAX_TASKS)
     .map(t => ({ ...t, description: t.description && t.description.slice(0, MAX_DESCRIPTION) }));
-  await ctx.runMutation(internal.cache.put, { accountId, store: "compass", kind: "taskdetail", data: full });
+  await ctx.runMutation(internal.work.keepTasks, { accountId, short, full });
   return { upcoming: short.filter(t => t.due && t.due > new Date(now).toISOString()).length };
+}
+
+/**
+ * Keeps both task lists (storeTasks), and tells the student what is new in them against the full list kept before
+ * (convex/marks.ts): a result newly back on a task, a task newly set and not yet due. Nothing is told the first time the
+ * account's tasks are kept.
+ */
+export const keepTasks = internalMutation({
+  args: { accountId: v.id("accounts"), short: v.any(), full: v.any() },
+  handler: async (ctx, { accountId, short, full }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return;
+    await keepRow(ctx, accountId, "tasks", short);
+    const before = await keepRow(ctx, accountId, "taskdetail", full);
+    if (Array.isArray(before?.data)) await tellTasks(ctx, account, before.data as CompassTask[], full as CompassTask[]);
+  },
+});
+
+async function tellTasks(ctx: MutationCtx, account: Doc<"accounts">, before: CompassTask[], after: CompassTask[]) {
+  const now = Date.now();
+  const was = new Map(before.map(t => [t.id, t]));
+  const backs = after.filter(t => t.me?.result && was.has(t.id) && !was.get(t.id)!.me?.result);
+  const set = after.filter(t => {
+    if (was.has(t.id) || !isNewWork(t.due, t.createdAt, now)) return false;
+    const state = compassState(t, now);
+    return state === "todo" || state === "none";
+  });
+  if (!backs.length && !set.length) return;
+
+  // A task's class is its activity's name, which is the timetable's class code.
+  const classes = ((await compassRow(ctx, account._id, "classes"))?.data ?? []) as StoredClass[];
+  const of = (t: CompassTask) => {
+    const c = classes.find(k => k.code === t.className);
+    return { code: c?.code ?? null, className: c ? shortClass(c) : (t.className ?? "Compass") };
+  };
+  // Results show on the task, in the class's Work.
+  if (!tooMany(backs)) {
+    await tellMarks(
+      ctx,
+      account,
+      backs.map(t => ({ key: `mark:compass:${t.id}`, ...of(t), task: t.name, result: resultText(t.me!.result!), shared: `compass:${t.id}` })),
+      "work",
+    );
+  }
+  if (!tooMany(set)) await tellWork(ctx, account, set.map(t => ({ key: `work:compass:${t.id}`, ...of(t), task: t.name, due: t.due })));
 }
 
 export async function syncTasks(ctx: ActionCtx, account: Doc<"accounts">, s: CompassSession) {
@@ -360,7 +411,34 @@ async function readBoard(ctx: ActionCtx, accountId: Id<"accounts">, c: ConnectSe
 
 /** Keeps a class's board, or the reason it could not be read beside the last good one. */
 const keepBoard = (ctx: ActionCtx, accountId: Id<"accounts">, classId: number, r: { data: ConnectRow } | { error: string }) =>
-  ctx.runMutation(internal.cache.put, { accountId, store: "connect", kind: connectKind(classId), ...r });
+  ctx.runMutation(internal.work.storeBoard, { accountId, classId, ...r });
+
+/**
+ * A class's board kept (keepBoard), and the student told of submissions newly on it, open, not yet due and set lately
+ * (convex/marks.ts). Nothing is told the first time the board is kept.
+ */
+export const storeBoard = internalMutation({
+  args: { accountId: v.id("accounts"), classId: v.number(), data: v.optional(v.any()), error: v.optional(v.string()) },
+  handler: async (ctx, { accountId, classId, data, error }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return;
+    const before = await storeRow(ctx, "connectCache", accountId, connectKind(classId), data !== undefined ? { data } : { error });
+    const was = (before?.data as ConnectRow | undefined)?.list;
+    const row = data as ConnectRow | undefined;
+    if (!was || !row?.list) return;
+    const now = Date.now();
+    const known = new Set(was.map(s => s.id));
+    const set = row.list.filter(s => !known.has(s.id) && s.open && connectState(s, row.mine?.[String(s.id)], now) === "todo" && isNewWork(s.due, s.createdAt, now));
+    if (!set.length || tooMany(set)) return;
+
+    const current = await currentClasses(ctx, account);
+    const { connectClasses, codeOf } = await connectCodes(ctx, account, current);
+    const code = codeOf.get(classId) ?? null;
+    const c = code ? current.find(k => k.code === code) : undefined;
+    const className = c ? shortClass(c) : (connectClasses.find(k => k.classId === classId)?.name ?? "Connect");
+    await tellWork(ctx, account, set.map(s => ({ key: `work:connect:${s.id}`, code, className, task: s.name, due: s.due })));
+  },
+});
 
 /** One class's work, for the class panel (load) and after handing in (only: the one submission handed in). */
 async function fetchConnect(ctx: ActionCtx, account: Doc<"accounts">, classId: number, only?: number) {
@@ -461,7 +539,8 @@ export const uploadUrl = mutation({
   handler: async (ctx, { token }) => {
     const tokenHash = await hashToken(token);
     const session = await ctx.db.query("sessions").withIndex("by_token", i => i.eq("tokenHash", tokenHash)).first();
-    if (!session) throw new Error("This device is signed out.");
+    // A guest's sign-in (auth.ts) reads the timetable only, and hands nothing in.
+    if (!session || session.guest) throw new Error("This device is signed out.");
     return ctx.storage.generateUploadUrl();
   },
 });

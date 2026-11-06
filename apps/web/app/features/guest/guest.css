@@ -1,0 +1,8 @@
+/* Guest mode (features/guest): the banner over a guest's day. It is the day's card (neo-stack) washed in Neo blue, so a
+   borrowed screen never reads as the device's own, and its Sign out is always one press away at the top. */
+.neo-guest-banner {
+  border-radius: 12px;
+  background: var(--neo-sheen), color-mix(in oklab, var(--neo) 9%, var(--paper));
+  border: var(--line-width, 1px) solid color-mix(in oklab, var(--neo) 32%, var(--line));
+  box-shadow: inset 0 1px 0 var(--neo-edge-hi), var(--neo-drop);
+}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Button } from "@/components/glaze/ui/button";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "@/lib/neo/live";
 import { api } from "@compassneo/backend/api";
 import { Calendar, ChartLine, Close, Icon, LearningTask, Library, Overview } from "@/components/glaze/icon";
 import { cn } from "@/lib/glaze/utils";

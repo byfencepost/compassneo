@@ -38,12 +38,24 @@ export const get = internalQuery({
 });
 
 /**
- * Keeps data (replacing the last), or an error beside the last good data. Writes nothing when nothing changed, not even
- * the time, unless it is over STAMP_EVERY old (lib/same.ts): a write runs every query reading the row again.
+ * Keeps data (replacing the last), or an error beside the last good data. Writes nothing when nothing changed: a write
+ * runs every query reading the row again, and rewrites the whole row however little moved.
+ *
+ * Not even the time moves, for a row the sync keeps: the app's "Updated" for those comes from the sync's steps (sync.ts
+ * latest, `checked`). Two kinds of row do have their time moved on, at most every STAMP_EVERY (lib/same.ts), as
+ * something decides by it: a row fetched only on demand (stamp, from its loader: resources.ts, learners.ts), which is
+ * fetched again once its time is old; and an error, which Connect's sign-in is held off by (sync.ts RETRY_REFUSED).
  */
 export const put = internalMutation({
-  args: { accountId: v.id("accounts"), store: storeV, kind: v.string(), data: v.optional(v.any()), error: v.optional(v.string()) },
-  handler: async (ctx, { accountId, store, kind, data, error }) => {
+  args: {
+    accountId: v.id("accounts"),
+    store: storeV,
+    kind: v.string(),
+    data: v.optional(v.any()),
+    error: v.optional(v.string()),
+    stamp: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { accountId, store, kind, data, error, stamp }) => {
     if (!(await ctx.db.get(accountId))) return;
     const now = Date.now();
     if (store === "compass") {
@@ -58,7 +70,7 @@ export const put = internalMutation({
       const row = await ctx.db.query("compassCache").withIndex("by_account_kind", i => i.eq("accountId", accountId).eq("kind", kind)).unique();
       if (!row) await ctx.db.insert("compassCache", { accountId, kind, data, fetchedAt: now });
       else if (!same(row.data, data)) await ctx.db.patch(row._id, { data, fetchedAt: now });
-      else if (now - row.fetchedAt > STAMP_EVERY) await ctx.db.patch(row._id, { fetchedAt: now });
+      else if (stamp && now - row.fetchedAt > STAMP_EVERY) await ctx.db.patch(row._id, { fetchedAt: now });
       return;
     }
     const row = await ctx.db.query(TABLE[store]).withIndex("by_account_kind", i => i.eq("accountId", accountId).eq("kind", kind)).unique();
@@ -66,7 +78,8 @@ export const put = internalMutation({
     if (!row) return void (await ctx.db.insert(TABLE[store], { accountId, kind, ...next }));
     const unchanged = data !== undefined ? row.error === undefined && same(row.data, data) : row.error === error;
     if (!unchanged) await ctx.db.patch(row._id, next);
-    else if (now - row.checkedAt > STAMP_EVERY) await ctx.db.patch(row._id, data !== undefined ? { fetchedAt: now, checkedAt: now } : { checkedAt: now });
+    else if ((stamp || data === undefined) && now - row.checkedAt > STAMP_EVERY)
+      await ctx.db.patch(row._id, data !== undefined ? { fetchedAt: now, checkedAt: now } : { checkedAt: now });
   },
 });
 

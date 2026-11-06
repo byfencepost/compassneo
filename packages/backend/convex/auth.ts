@@ -5,11 +5,18 @@ import { CompassError, getUserDetails, normalizeSlug, probeSchool, signIn as com
 import { hashToken, newToken, seal } from "./lib/crypto";
 import { type Problem } from "./lib/compass";
 import { accountKey, forgetAccount, sweepFarewells } from "./accounts";
+import { dropDevices, sweepPush } from "./push";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const ATTEMPT_WINDOW = 10 * MINUTE;
 const ATTEMPT_LIMIT = 6;
+/**
+ * A guest's sign-in (guest mode: a friend checking their timetable on someone else's device) ends by itself this long
+ * after it began, if nobody signed it out: about a school day. The hourly sweep ends it; the device finds it gone and
+ * goes back to its own account.
+ */
+export const GUEST_FOR = 8 * HOUR;
 
 export type Me = {
   slug: string;
@@ -24,6 +31,8 @@ export type Me = {
   needsSignIn: boolean;
   /** The Compass profile photo, once a sync has copied it. */
   photoUrl: string | null;
+  /** A guest's sign-in on someone else's device: it reads the timetable only, and ends by itself (GUEST_FOR). */
+  guest: boolean;
 };
 
 export type SignInResult =
@@ -41,9 +50,14 @@ const isWA = (slug: string) => /-wa$/.test(slug);
  * Signs in to the school's Compass with the mobile-app endpoint. On success the login is kept, sealed under
  * CREDENTIALS_KEY, so Compass Neo can sign in again by itself when Compass ends the session (it does, daily), and so
  * Connect can use the same login. It is deleted when the last device signs out.
+ *
+ * guest: a friend signing in on someone else's device, beside that device's own sign-in (guest mode). Their session
+ * reads the timetable and nothing else (timetable.ts accountFor, lib/compass.ts deviceAccount: grades are left off the
+ * day), takes no notifications, and ends by itself after GUEST_FOR. Signing it out is signing out of a device as ever:
+ * if it was the account's only one, the account and its login go with it.
  */
 export const signIn = action({
-  args: { slug: v.string(), username: v.string(), password: v.string() },
+  args: { slug: v.string(), username: v.string(), password: v.string(), guest: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<SignInResult> => {
     const slug = normalizeSlug(args.slug);
     const username = args.username.trim();
@@ -82,6 +96,7 @@ export const signIn = action({
       connect: isWA(slug),
       needsSignIn: false,
       photoUrl: null,
+      guest: !!args.guest,
     };
     const token = newToken();
     const accountId = await ctx.runMutation(internal.accounts.signedIn, {
@@ -96,6 +111,7 @@ export const signIn = action({
       formGroup: me.formGroup ?? undefined,
       sealedLogin: await seal("CREDENTIALS_KEY", { username, password: args.password }, key),
       sealedCompass: await seal("SESSION_KEY", session.cookies, key),
+      guest: args.guest || undefined,
     });
     // Sync now (Compass, and Connect at a WA school), so everything is there as the app opens; the app draws it. The run
     // waits its turn in the sync pool (convex/sync.ts), so this answers at once. An account already synced opens on
@@ -124,6 +140,7 @@ export const me = query({
       connect: isWA(a.slug),
       needsSignIn: !a.sealedLogin,
       photoUrl: a.photoId ? await ctx.storage.getUrl(a.photoId) : null,
+      guest: !!session.guest,
     };
   },
 });
@@ -135,6 +152,7 @@ export const signOut = mutation({
     const tokenHash = await hashToken(token);
     const rows = await ctx.db.query("sessions").withIndex("by_token", i => i.eq("tokenHash", tokenHash)).collect();
     for (const r of rows) {
+      await dropDevices(ctx, r._id);
       await ctx.db.delete(r._id);
       const others = await ctx.db.query("sessions").withIndex("by_account", i => i.eq("accountId", r.accountId)).first();
       const account = await ctx.db.get(r.accountId);
@@ -161,8 +179,8 @@ export const noteAttempt = internalMutation({
 });
 
 /**
- * Drops old attempts, old farewells (accounts.ts), and devices nobody has used in a month (an account with no devices
- * left goes too).
+ * Drops old attempts, old farewells (accounts.ts), devices nobody has used in a month, and guests' sign-ins older than
+ * GUEST_FOR (an account with no devices left goes too).
  */
 export const sweep = internalMutation({
   args: {},
@@ -171,8 +189,14 @@ export const sweep = internalMutation({
     const oldAttempts = await ctx.db.query("attempts").withIndex("by_key_at").filter(q => q.lt(q.field("at"), now - ATTEMPT_WINDOW)).take(500);
     for (const a of oldAttempts) await ctx.db.delete(a._id);
     await sweepFarewells(ctx, now);
+    await sweepPush(ctx, now);
     const stale = await ctx.db.query("sessions").withIndex("by_lastSeen", i => i.lt("lastSeenAt", now - 30 * 24 * HOUR)).take(200);
-    for (const s of stale) {
+    const guests = await ctx.db.query("sessions").withIndex("by_guest", i => i.eq("guest", true).lt("createdAt", now - GUEST_FOR)).take(200);
+    const seen = new Set<string>();
+    for (const s of [...stale, ...guests]) {
+      if (seen.has(s._id)) continue;
+      seen.add(s._id);
+      await dropDevices(ctx, s._id);
       await ctx.db.delete(s._id);
       const others = await ctx.db.query("sessions").withIndex("by_account", i => i.eq("accountId", s.accountId)).first();
       const account = await ctx.db.get(s.accountId);

@@ -74,7 +74,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_key", ["key"])
-    .index("by_nextSync", ["nextSyncAt"]),
+    .index("by_nextSync", ["nextSyncAt"])
+    .index("by_slug", ["slug"]),
 
   /**
    * What changes about an account on nearly every sync, kept off its row (accounts.ts, "state"): Compass and Connect
@@ -92,16 +93,21 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_nextSync", ["nextSyncAt"]),
 
-  /** A signed-in device: the hash of the token the browser holds, pointing at its account. */
+  /**
+   * A signed-in device: the hash of the token the browser holds, pointing at its account. guest: a sign-in on someone
+   * else's device (auth.ts, guest mode), which reads the timetable and nothing else, and ends by itself after GUEST_FOR.
+   */
   sessions: defineTable({
     tokenHash: v.string(),
     accountId: v.id("accounts"),
     createdAt: v.number(),
     lastSeenAt: v.number(),
+    guest: v.optional(v.boolean()),
   })
     .index("by_token", ["tokenHash"])
     .index("by_lastSeen", ["lastSeenAt"])
-    .index("by_account", ["accountId"]),
+    .index("by_account", ["accountId"])
+    .index("by_guest", ["guest", "createdAt"]),
 
   /**
    * Why a device was signed out behind its back (the stored login stopped working), kept a few days under its token's
@@ -157,10 +163,11 @@ export default defineSchema({
    */
   syncs: defineTable({
     accountId: v.id("accounts"),
-    reason: v.union(v.literal("sign-in"), v.literal("open"), v.literal("manual"), v.literal("active"), v.literal("background")),
+    /** classmate: asked for because a classmate's sync found a new mark in a class this account shares (convex/push.ts). */
+    reason: v.union(v.literal("sign-in"), v.literal("open"), v.literal("manual"), v.literal("active"), v.literal("background"), v.literal("classmate")),
     /** full: every step. quick: the few that change minute to minute (an open tab's minute sync). Unset on older runs: full. */
     kind: v.optional(v.union(v.literal("full"), v.literal("quick"))),
-    /** The workpool job running it (convex/pools.ts), and how many times it has been tried. */
+    /** The scheduled job running it (convex/sync.ts schedule; a workpool's, on runs from before), and its tries so far. */
     workId: v.optional(v.string()),
     attempts: v.optional(v.number()),
     /** A quiet run (active, background) someone asked to see after it had started: the gauges draw it after all. */
@@ -285,4 +292,74 @@ export default defineSchema({
       }),
     ),
   }).index("by_slug_item", ["slug", "itemId"]),
+
+  /**
+   * A phone that takes push notifications (convex/push.ts): its Expo push token, the signed-in device (session) it
+   * belongs to, and what it wants to hear about. Goes when its session goes (signing out, the sweep, a forgotten account).
+   */
+  pushDevices: defineTable({
+    accountId: v.id("accounts"),
+    sessionId: v.id("sessions"),
+    /** Expo's push token: ExponentPushToken[...]. */
+    token: v.string(),
+    platform: v.union(v.literal("ios"), v.literal("android")),
+    /**
+     * What it is told about, each on by default:
+     *   work     new work set in a class
+     *   marks    a mark or result coming back
+     *   changes  an hour before the first class: a relief teacher or a room change today
+     *   notices  the day's notices
+     */
+    prefs: v.object({ work: v.boolean(), marks: v.boolean(), changes: v.boolean(), notices: v.boolean() }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_session", ["sessionId"])
+    .index("by_token", ["token"]),
+
+  /**
+   * Every notification sent, by a key naming what it was about ("mark:compass:123", "brief:2026-11-06"), so the same
+   * thing is never told twice however many syncs see it. Kept a few weeks (auth.sweep).
+   */
+  pushLog: defineTable({
+    accountId: v.id("accounts"),
+    key: v.string(),
+    at: v.number(),
+    /** The school day it was told on (the school's own date), its kind, and the class it was about, for the daily budget. */
+    day: v.optional(v.string()),
+    kind: v.optional(v.string()),
+    code: v.optional(v.string()),
+    /** Whether it went out: false when no device wanted it, or the day's budget was spent (convex/push.ts). */
+    sent: v.optional(v.boolean()),
+  })
+    .index("by_account_key", ["accountId", "key"])
+    .index("by_account_day", ["accountId", "day"])
+    .index("by_at", ["at"]),
+
+  /**
+   * Who takes which class at a school, from each account's timetable ("classes", convex/timetable.ts keepDays): how a
+   * new mark found in one student's sync finds their classmates on Compass Neo (convex/push.ts).
+   */
+  classMembers: defineTable({
+    slug: v.string(),
+    code: v.string(),
+    accountId: v.id("accounts"),
+    /** The last school day the class was on this account's timetable. */
+    lastSeen: v.string(),
+  })
+    .index("by_slug_code", ["slug", "code"])
+    .index("by_account", ["accountId"]),
+
+  /**
+   * Classmate checks already asked for, by school, class and what set them off, so one new mark sets off one round of
+   * classmates' syncs, not one per classmate who then finds it too (convex/push.ts).
+   */
+  nudges: defineTable({
+    slug: v.string(),
+    key: v.string(),
+    at: v.number(),
+  })
+    .index("by_slug_key", ["slug", "key"])
+    .index("by_at", ["at"]),
 });

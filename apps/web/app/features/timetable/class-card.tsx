@@ -199,7 +199,8 @@ function heroStatus(l: Lesson, now: number, isToday: boolean, zone: string) {
 /**
  * A lesson as a card, in one of four sizes: the hero (on now or next), a row, a tile, a finished one. Pressing it opens
  * the class in the panel at the side (features/class); while it is open, every card of that class is marked as
- * picked (selected: washed and ringed in its colour).
+ * picked (selected: washed and ringed in its colour). Without onOpen (a guest's day, features/guest) it opens
+ * nothing, so it is not a button at all.
  */
 export function ClassCard({
   lesson,
@@ -228,29 +229,17 @@ export function ClassCard({
   const live = isToday && whenOf(lesson, now) === "now";
   const progress = live ? (now - Date.parse(lesson.start)) / (Date.parse(lesson.finish) - Date.parse(lesson.start)) : 0;
   const status = size === "hero" ? heroStatus(lesson, now, isToday, zone) : null;
+  const look = cn(
+    "neo-card w-full",
 
-  return (
-    <motion.button
-      type="button"
-      layoutId={id.card}
-      transition={spring.morph}
-      data-hue={lesson.hue}
-      data-current={live || undefined}
-      data-done={done || undefined}
-      data-selected={selected || undefined}
-      aria-pressed={selected ?? false}
-      onClick={e => onOpen?.(k, e.currentTarget)}
-      // eslint-disable-next-line glaze/no-inline-style -- motion keeps a corner radius true while a box morphs only when it is set through style
-      style={{ borderRadius: RADIUS[size] }}
-      className={cn(
-        "neo-card w-full",
+    size === "hero" && "px-5 pt-4.5 pb-5.5",
+    size === "row" && "px-4 py-2.5",
+    size === "tile" && "px-4 py-2.5",
+    size === "done" && "px-4 py-2",
+  );
 
-        size === "hero" && "px-5 pt-4.5 pb-5.5",
-        size === "row" && "px-4 py-2.5",
-        size === "tile" && "px-4 py-2.5",
-        size === "done" && "px-4 py-2",
-      )}
-    >
+  const body = (
+    <>
       {size === "hero" && (
         <span className="flex min-h-17 items-center gap-4">
           <span className="flex min-w-0 flex-1 flex-col">
@@ -352,6 +341,41 @@ export function ClassCard({
           />
         </span>
       )}
+    </>
+  );
+
+  if (!onOpen)
+    return (
+      <motion.div
+        layoutId={id.card}
+        transition={spring.morph}
+        data-hue={lesson.hue}
+        data-current={live || undefined}
+        data-done={done || undefined}
+        // eslint-disable-next-line glaze/no-inline-style -- motion keeps a corner radius true while a box morphs only when it is set through style
+        style={{ borderRadius: RADIUS[size] }}
+        className={look}
+      >
+        {body}
+      </motion.div>
+    );
+
+  return (
+    <motion.button
+      type="button"
+      layoutId={id.card}
+      transition={spring.morph}
+      data-hue={lesson.hue}
+      data-current={live || undefined}
+      data-done={done || undefined}
+      data-selected={selected || undefined}
+      aria-pressed={selected ?? false}
+      onClick={e => onOpen(k, e.currentTarget)}
+      // eslint-disable-next-line glaze/no-inline-style -- motion keeps a corner radius true while a box morphs only when it is set through style
+      style={{ borderRadius: RADIUS[size] }}
+      className={look}
+    >
+      {body}
     </motion.button>
   );
 }

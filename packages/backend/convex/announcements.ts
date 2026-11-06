@@ -1,16 +1,18 @@
 import { v, type Infer } from "convex/values";
 import { vOnCompleteArgs } from "@convex-dev/workpool";
-import { internalMutation, internalQuery, query, type ActionCtx } from "./_generated/server";
+import { internalMutation, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getNews, type CompassSession } from "@compassneo/compass";
 import schema from "./schema";
 import { aiPool } from "./pools";
+import { notify, told, type Push } from "./push";
 import { hashToken } from "./lib/crypto";
 import { fileLink } from "./lib/links";
 import { parsePlan, type PlanBlock } from "./lib/plan";
 import { addDays, dayOf, schoolToday } from "./lib/days";
 import { assembliesOn, noticesFor, postedOf, type DayAssembly } from "./lib/assemblies";
+import { listedIn, NEW_ROW_SLACK, newsKey, newsPush, TELL_WITHIN } from "./lib/news";
 import { accountFor, compassRow, periodsOf, type StoredLesson } from "./timetable";
 
 /**
@@ -24,6 +26,14 @@ import { accountFor, compassRow, periodsOf, type StoredLesson } from "./timetabl
  * convex/ai.ts; the queueing happens in the same mutation that sees the item, with a lease on the row, so two syncs at
  * one school racing each other queue it once. Without ANTHROPIC_API_KEY nothing is queued: items are kept "skipped"
  * and the app shows their text instead of bullets, until a sync after the key is set.
+ *
+ * The day's notices and important announcements are pushed to the students who see them (kind "notices", key
+ * news:<itemId>; which items and what words is lib/news.ts). Two things tell them, each only students with a phone that
+ * wants notices:
+ *   the item becoming ready  its read landing (or failing, or being skipped as it arrives) tells everyone at the school
+ *                            whose news row lists it, a page of accounts at a time (tellSchool)
+ *   a student's own sync     tells them what is ready in their feed and not told yet: an item their row lists only
+ *                            from this sync on, and one whose read has kept it waiting past READ_WAIT
  */
 
 const MINUTE = 60 * 1000;
@@ -38,8 +48,6 @@ const MAX_TEXT = 12_000;
 const LEASE = 30 * MINUTE;
 /** A read that failed through every retry (the API down, the key refused) is tried again after this. */
 const RETRY_AFTER = 6 * HOUR;
-/** seenAt is written at most this often for an item that has not changed, so a sync is not thirty writes. */
-const SEEN_EVERY = 6 * HOUR;
 /** After the paged news feed fails, it is asked again only after this (Feed.svc answers meanwhile). */
 const PAGED_AGAIN = 24 * HOUR;
 /** Notices shown on home: the last three weeks. */
@@ -109,7 +117,9 @@ export async function fetchNews(ctx: ActionCtx, account: Doc<"accounts">, s: Com
     fields: feed.fields,
     textFields: feed.textFields,
     problem: feed.problem,
-    pagedAt: paged ? Date.now() : last?.pagedAt,
+    // Only while the paged feed is held off (the plain feed answered instead): a time kept on every sync would make the
+    // row new each time, and run every query reading it again.
+    pagedAt: feed.source === "feed" ? (paged ? Date.now() : last?.pagedAt) : undefined,
     items,
   });
   // Everything learned about the feed's shape, in the logs in full when it is new (the step's note is cut at 200
@@ -168,8 +178,11 @@ export const take = internalMutation({
     if (!(await ctx.db.get(a.accountId))) return { queued: 0 };
     const now = Date.now();
     const keyed = !!process.env.ANTHROPIC_API_KEY;
-    const oldest = addDays(schoolToday(a.slug), -READ_WITHIN_DAYS);
+    const today = schoolToday(a.slug);
+    const oldest = addDays(today, -READ_WITHIN_DAYS);
     let queued = 0;
+    /** Today's items, new at the school: maybe news to tell (lib/news.ts decides, below). ready: settled as it arrived. */
+    const fresh: Array<{ id: Id<"announcements">; ready: boolean }> = [];
 
     for (const item of a.items) {
       const row = await ctx.db
@@ -219,8 +232,9 @@ export const take = internalMutation({
         });
       } else {
         id = row._id;
+        // Nothing else is written: the item is shared by everyone at the school, and every one of their timetables reads
+        // it (lib/assemblies.ts noticesFor), so a write runs them all again.
         if (changed || decision || filesMoved) await ctx.db.patch(id, { ...words, seenAt: now, ...state, ...stale });
-        else if (now - row.seenAt > SEEN_EVERY) await ctx.db.patch(id, { seenAt: now });
       }
 
       if (decision === "read") {
@@ -233,6 +247,7 @@ export const take = internalMutation({
         await ctx.db.patch(id, { workId });
         queued++;
       }
+      if (dayOf(posted, a.slug) === today && now - (row?.firstSeenAt ?? now) <= TELL_WITHIN) fresh.push({ id, ready: changed && !!decision && decision !== "read" });
     }
 
     // The student's own row: which items they see, newest first, and what the feed looked like.
@@ -248,6 +263,20 @@ export const take = internalMutation({
       .query("compassCache")
       .withIndex("by_account_kind", i => i.eq("accountId", a.accountId).eq("kind", "news"))
       .unique();
+
+    // This student is told what in their feed is ready to tell (their first sync tells them nothing: it is all backlog
+    // to them), and an item that is ready as it arrives (skipped, not read) is told to the rest of the school.
+    if (fresh.length) {
+      let wants: boolean | undefined;
+      for (const f of fresh) {
+        const n = await ctx.db.get(f.id);
+        const push = n && newsPush(n, now);
+        if (!n || !push) continue;
+        if (news && (wants ??= await wantsNotices(ctx, a.accountId))) await tellStudent(ctx, a.accountId, n, push, news._creationTime);
+        if (f.ready) await ctx.scheduler.runAfter(0, internal.announcements.tellSchool, { id: f.id });
+      }
+    }
+
     if (!news) await ctx.db.insert("compassCache", { accountId: a.accountId, kind: "news", data, fetchedAt: now });
     else await ctx.db.patch(news._id, JSON.stringify(news.data) === JSON.stringify(data) ? { fetchedAt: now } : { data, fetchedAt: now });
     return { queued };
@@ -301,6 +330,7 @@ export const save = internalMutation({
     } else {
       await ctx.db.patch(id, { ...settled, status: "skipped", skipped: "no-key", error: cut(outcome.error) });
     }
+    await whenReady(ctx, id);
   },
 });
 
@@ -324,6 +354,56 @@ export const settled = internalMutation({
       parsed: undefined,
       parsedHash: undefined,
     });
+    await whenReady(ctx, row._id);
+  },
+});
+
+// ---------- telling (lib/news.ts) ----------
+
+/** Accounts looked at per mutation as a school is told; more chain on in mutations of their own. */
+const TELL_BATCH = 50;
+
+/** A read just settled: if that makes the item news to tell, the school is told. */
+async function whenReady(ctx: MutationCtx, id: Id<"announcements">) {
+  const n = await ctx.db.get(id);
+  if (n && newsPush(n, Date.now())) await ctx.scheduler.runAfter(0, internal.announcements.tellSchool, { id });
+}
+
+const wantsNotices = async (ctx: QueryCtx, accountId: Id<"accounts">) =>
+  (await ctx.db.query("pushDevices").withIndex("by_account", i => i.eq("accountId", accountId)).collect()).some(d => d.prefs.notices);
+
+/**
+ * Tells one student about an item they see, once (notify), when it is news to them: their news row was made (`since`)
+ * before the school first saw the item. How many a day is push.ts's budget (notify), shared with everything else.
+ */
+async function tellStudent(ctx: MutationCtx, accountId: Id<"accounts">, n: Doc<"announcements">, push: Push, since: number) {
+  if (since + NEW_ROW_SLACK > n.firstSeenAt) return false;
+  const key = newsKey(n.itemId);
+  if (await told(ctx, accountId, key)) return false;
+  return notify(ctx, accountId, key, push);
+}
+
+/**
+ * Tells everyone at an item's school who sees it and wants notices, a page of accounts at a time. Asked for when the
+ * item becomes ready to tell; whether it still is is asked again on every page (lib/news.ts newsPush).
+ */
+export const tellSchool = internalMutation({
+  args: { id: v.id("announcements"), cursor: v.optional(v.string()) },
+  handler: async (ctx, { id, cursor }) => {
+    const now = Date.now();
+    const n = await ctx.db.get(id);
+    const push = n && newsPush(n, now);
+    if (!n || !push) return;
+    const page = await ctx.db
+      .query("accounts")
+      .withIndex("by_slug", i => i.eq("slug", n.slug))
+      .paginate({ numItems: TELL_BATCH, cursor: cursor ?? null });
+    for (const account of page.page) {
+      if (!(await wantsNotices(ctx, account._id))) continue;
+      const news = await compassRow(ctx, account._id, "news");
+      if (news && listedIn(news.data, n.itemId)) await tellStudent(ctx, account._id, n, push, news._creationTime);
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.announcements.tellSchool, { id, cursor: page.continueCursor });
   },
 });
 

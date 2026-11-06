@@ -45,17 +45,28 @@ async function signInRetrying(call: () => Promise<SignInAnswer>): Promise<SignIn
   }
 }
 
-/** Who you are: the chosen school as a card you can change, then username and password. */
+/** A sign-in the screen will not take after all, said in place of the form's answer (guest mode's own account). */
+export type Refusal = { title: string; body: string };
+
+/**
+ * Who you are: the chosen school as a card you can change, then username and password.
+ *
+ * guest: a friend signing in on this device beside its own sign-in (features/guest): the sign-in is a guest's
+ * (convex/auth.ts), and the browser is asked neither to fill in the device's saved login nor to keep the friend's.
+ * onSignedIn may refuse the sign-in it is handed, with what to say instead.
+ */
 export function CredentialsStep({
   focusOnMount,
   school,
+  guest = false,
   onChangeSchool,
   onSignedIn,
 }: {
   focusOnMount: boolean;
   school: School;
+  guest?: boolean;
   onChangeSchool: () => void;
-  onSignedIn: (token: string, me: Me, cached: boolean) => void;
+  onSignedIn: (token: string, me: Me, cached: boolean) => void | Refusal | Promise<void | Refusal>;
 }) {
   const signIn = useAction(api.auth.signIn);
   const [pending, setPending] = useState(false);
@@ -74,18 +85,19 @@ export function CredentialsStep({
     }
     setPending(true);
     try {
-      const r = await signInRetrying(() => signIn({ slug: school.slug, username, password }));
-      if (r.ok) {
-        // Stay pending: the screen hands over to the app from here.
-        onSignedIn(r.token, r.me, r.cached);
-        return;
-      }
+      const r = await signInRetrying(() => signIn({ slug: school.slug, username, password, ...(guest ? { guest: true } : {}) }));
       const show = (next: { errors?: Record<string, string>; notice?: Notice }) =>
         morph(() => {
           setPending(false);
           setErrors(next.errors ?? {});
           setNotice(next.notice ?? null);
         });
+      if (r.ok) {
+        // Stay pending: the screen hands over to the app from here, unless it will not take this sign-in.
+        const refused = await onSignedIn(r.token, r.me, r.cached);
+        if (refused) void show({ notice: { status: "warn", ...refused } });
+        return;
+      }
       switch (r.code) {
         case "bad-credentials":
           // The form shakes once the button has finished gliding under the new error.
@@ -158,17 +170,24 @@ export function CredentialsStep({
           <Input
             name="username"
             size="lg"
-            autoComplete="username"
+            autoComplete={guest ? "off" : "username"}
             autoCapitalize="none"
             spellCheck={false}
             placeholder="jordan.lee"
             autoFocus={focusOnMount}
+            {...(guest ? { "data-1p-ignore": true, "data-lpignore": "true" } : {})}
           />
           <FieldError />
         </Field>
         <Field name="password" validate={requireValue("Enter your Compass password.")}>
           <FieldLabel>Password</FieldLabel>
-          <Input mode="password" name="password" size="lg" autoComplete="current-password" />
+          <Input
+            mode="password"
+            name="password"
+            size="lg"
+            autoComplete={guest ? "off" : "current-password"}
+            {...(guest ? { "data-1p-ignore": true, "data-lpignore": "true" } : {})}
+          />
           <FieldError />
         </Field>
 
@@ -194,7 +213,7 @@ export function CredentialsStep({
         )}
 
         <Button type="submit" size="lg" className="neo-vt-go mt-1 w-full" pending={pending} pendingLabel="Signing in">
-          Sign in
+          {guest ? "Sign in as guest" : "Sign in"}
         </Button>
       </Form>
     </div>

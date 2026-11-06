@@ -4,7 +4,7 @@ import { useAction } from "convex/react";
 import { api } from "@compassneo/backend/api";
 import { coarsePointer } from "@/lib/glaze/portal";
 import { Bezel, NeoMark, Wordmark } from "@/components/brand/logo";
-import { sessionStore, signOutNotice, type Me } from "@/lib/neo/session";
+import { guestStore, sessionStore, signOutNotice, type Me } from "@/lib/neo/session";
 import { Alert, AlertTitle } from "@/components/glaze/ui/alert";
 import { hostOf, lastSchool, unbreakable, motionMs, rememberSchool, useRecentSchools, type School } from "@/lib/neo/schools";
 import { normalizeSlug } from "@/lib/neo/slug";
@@ -162,6 +162,8 @@ export function LoginScreen({ slugParam }: { slugParam?: string }) {
   const signedIn = (token: string, me: Me, cached: boolean) => {
     void go({ kind: "syncing", token, me, cached, at: Date.now() }, () => {
       sessionStore.set({ token, me });
+      // A fresh sign-in starts with no guest on the device (guest mode never outlives the sign-in it borrowed).
+      guestStore.set(null);
       signOutNotice.set(null);
     });
   };

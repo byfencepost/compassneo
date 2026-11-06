@@ -43,7 +43,7 @@ export const all = query({
     const classes = (((await compassRow(ctx, account._id, "classes"))?.data ?? []) as StoredClass[]).filter(
       c => c.lastSeen >= addDays(today, -STALE_DAYS),
     );
-    const { source, grades: gradesRow } = await gradeRows(ctx, account);
+    const { source, grades: gradesRow } = await gradeRows(ctx, account, { history: false });
     const grades = (gradesRow?.data ?? []) as SubjectGrade[];
     const subjectOfClass = await subjectMatcher(ctx, account, source);
     const notices = ((await connectRow(ctx, account._id, "notices"))?.data ?? []) as ConnectNotice[];

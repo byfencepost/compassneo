@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { action, query, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { getChronicle, type ChronicleEntry, type ChronicleSummary, type CompassSession } from "@compassneo/compass";
+import { chronicleFields, getChronicle, type ChronicleEntry, type ChronicleSummary, type CompassSession } from "@compassneo/compass";
 import { deviceAccount, withCompass, type Problem } from "./lib/compass";
 import { addDays, schoolToday } from "./lib/days";
 import { accountFor } from "./timetable";
@@ -44,7 +44,10 @@ export const get = query({
     const codes = new Map(names.map(n => [n, codesFor(n).map(c => c.code)]));
     const known = await teachersFor(ctx, account.slug, [...codes.values()].flat());
     const photoOf = (n: string | null) => (n ? ((codes.get(n) ?? []).map(c => known.get(c)?.photoUrl).find(Boolean) ?? null) : null);
-    const entries = [...d.entries].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? "")).map(e => ({ ...e, byPhotoUrl: photoOf(e.by) }));
+    // Fields read again, so a row cached before checkbox lists were read as words shows words too.
+    const entries = [...d.entries]
+      .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))
+      .map(e => ({ ...e, fields: chronicleFields(e.fields), byPhotoUrl: photoOf(e.by) }));
     return { ...d, entries, fetchedAt: row.fetchedAt ?? row.checkedAt };
   },
 });

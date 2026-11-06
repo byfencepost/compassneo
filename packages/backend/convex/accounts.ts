@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hashToken } from "./lib/crypto";
+import { forgetPush } from "./push";
 
 /**
  * Accounts: one per school and username, shared by every device signed in to it.
@@ -31,6 +32,12 @@ export const accountKey = (slug: string, username: string) => `${slug}:${usernam
 
 const HOUR = 60 * 60 * 1000;
 const FAREWELL_FOR = 7 * 24 * HOUR;
+/**
+ * A device's lastSeenAt moves on at most this often (here, and sync.ts now): enough to tell three days from now (the
+ * background's dormant cadence) or a month (the sweep). Rarely, as every query a device has open reads its session,
+ * and runs again when it is written.
+ */
+export const SEEN_EVERY = 6 * HOUR;
 
 const farewellV = v.object({ code: v.union(v.literal("signed-out"), v.literal("password-changed")), message: v.string() });
 export type Farewell = { code: "signed-out" | "password-changed"; message: string };
@@ -94,8 +101,10 @@ export const signedIn = internalMutation({
     formGroup: v.optional(v.string()),
     sealedLogin: v.string(),
     sealedCompass: v.string(),
+    /** A guest's sign-in on someone else's device (auth.ts signIn): the device it adds reads the timetable only. */
+    guest: v.optional(v.boolean()),
   },
-  handler: async (ctx, { tokenHash, ...fields }): Promise<Id<"accounts">> => {
+  handler: async (ctx, { tokenHash, guest, ...fields }): Promise<Id<"accounts">> => {
     const now = Date.now();
     const existing = await ctx.db.query("accounts").withIndex("by_key", i => i.eq("key", fields.key)).unique();
     const accountId = existing
@@ -106,7 +115,7 @@ export const signedIn = internalMutation({
       const state = await stateOf(ctx, accountId);
       if (state?.sealedCompass) await ctx.db.patch(state._id, { sealedCompass: fields.sealedCompass, compassAt: now });
     }
-    await ctx.db.insert("sessions", { tokenHash, accountId, createdAt: now, lastSeenAt: now });
+    await ctx.db.insert("sessions", { tokenHash, accountId, createdAt: now, lastSeenAt: now, ...(guest ? { guest: true } : {}) });
     const school = await ctx.db.query("schools").withIndex("by_slug", i => i.eq("slug", fields.slug)).unique();
     if (school) await ctx.db.patch(school._id, { signIns: school.signIns + 1 });
     return accountId;
@@ -154,12 +163,12 @@ export const saveConnect = internalMutation({
   },
 });
 
-/** Marks a device as used, at most once an hour, so idle devices can be swept. */
+/** Marks a device as used, at most every SEEN_EVERY, so idle devices can be swept. */
 export const touch = internalMutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, { sessionId }) => {
     const s = await ctx.db.get(sessionId);
-    if (s && Date.now() - s.lastSeenAt > HOUR) await ctx.db.patch(sessionId, { lastSeenAt: Date.now() });
+    if (s && Date.now() - s.lastSeenAt > SEEN_EVERY) await ctx.db.patch(sessionId, { lastSeenAt: Date.now() });
   },
 });
 
@@ -173,6 +182,7 @@ export async function forgetAccount(ctx: MutationCtx, account: Doc<"accounts">, 
     if (farewell) await ctx.db.insert("farewells", { tokenHash: s.tokenHash, ...farewell, at: Date.now() });
     await ctx.db.delete(s._id);
   }
+  await forgetPush(ctx, account._id);
   for (const c of await ctx.db.query("connectCache").withIndex("by_account_kind", i => i.eq("accountId", account._id)).collect()) {
     await ctx.db.delete(c._id);
   }

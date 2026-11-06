@@ -293,7 +293,7 @@ export const detail = query({
     }
 
     const connectClass = connectClassFor(code, subjectRaw, teacherCodes, connectClasses, notices);
-    const canvas = await canvasView(ctx, account, await currentClasses(ctx, account));
+    const canvas = await canvasView(ctx, account, await currentClasses(ctx, account), { announcements: true });
     const week = usualWeek(days);
 
     return {

@@ -384,6 +384,34 @@ const plain = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/**
+ * A field's value as words. Compass keeps a checkbox list as JSON ('[{"valueOption":"Pride","isChecked":true},…]'):
+ * that reads as the options ticked ("Pride, Perseverance"), or nothing when none are. Anything else is itself.
+ */
+export function chronicleValue(value: string) {
+  if (!value.includes('"valueOption"')) return value;
+  let options: Array<{ option: string; ticked: boolean }>;
+  try {
+    const list = JSON.parse(value) as Array<Record<string, unknown>>;
+    options = list.map(o => ({ option: String(o.valueOption ?? ""), ticked: o.isChecked === true }));
+  } catch {
+    // Cut short or otherwise broken: read the options it does spell out.
+    options = [...value.matchAll(/"valueOption"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"isChecked"\s*:\s*(true|false)/g)].map(m => ({
+      option: m[1]!.replace(/\\(.)/g, "$1"),
+      ticked: m[2] === "true",
+    }));
+  }
+  return options
+    .filter(o => o.ticked)
+    .map(o => o.option.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** An entry's fields worth showing: checkbox lists read as their ticked options, empty ones dropped. */
+export const chronicleFields = (fields: ChronicleEntry["fields"]) =>
+  fields.map(f => ({ name: f.name, value: chronicleValue(f.value) })).filter(f => f.value);
+
 export type ChronicleSummary ={ category: string; count: number; yearCount: number; points: number };
 
 export async function getChronicle(
@@ -416,10 +444,11 @@ export async function getChronicle(
         points: n0(e.points),
         at: str(e.occurredTimestamp) ?? str(e.createdTimestamp),
         by: str(e.userNameCreated) ?? str(e.creatorName),
-        fields: ((e.inputFields ?? []) as Array<Record<string, any>>)
-          .filter(f => f.showInFeedStudents !== false && str(f.value))
-          .map(f => ({ name: plain(str(f.name) ?? ""), value: plain(str(f.value) ?? "") }))
-          .filter(f => f.value),
+        fields: chronicleFields(
+          ((e.inputFields ?? []) as Array<Record<string, any>>)
+            .filter(f => f.showInFeedStudents !== false && str(f.value))
+            .map(f => ({ name: plain(str(f.name) ?? ""), value: plain(str(f.value) ?? "") })),
+        ),
       });
     }
   }

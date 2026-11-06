@@ -454,7 +454,15 @@ export class ConnectSession {
       const twin = out.some(x => x !== s && x.semester === s.semester && x.area === s.area);
       if (twin && s.outline) s.subject = outlineName(s.outline);
     }
-    return out;
+    // In one order, whatever order Connect gave them in: it swaps twins from one ask to the next, and grades that come
+    // back the same must look the same, or the cache rewrites them and every page reading them runs again.
+    return out.sort(
+      (a, b) =>
+        a.semester - b.semester ||
+        (a.area ?? "").localeCompare(b.area ?? "") ||
+        a.subject.localeCompare(b.subject) ||
+        (a.outlineId ?? 0) - (b.outlineId ?? 0),
+    );
   }
 
   toJSON() {

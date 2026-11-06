@@ -43,3 +43,13 @@ export function daysBetween(from: string, to: string) {
 }
 
 export const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
+
+/**
+ * The time at the school, as the background scheduler weighs it (sync.ts): the hour (0 to 23, in the state's standard
+ * time, as dayOf) and whether the day is a weekday. An hour out in daylight saving moves nothing that matters here.
+ */
+export function schoolClock(slug: string, at = Date.now()) {
+  const local = new Date(at + offsetMs(slug));
+  const weekday = local.getUTCDay();
+  return { hour: local.getUTCHours(), weekday: weekday !== 0 && weekday !== 6 };
+}

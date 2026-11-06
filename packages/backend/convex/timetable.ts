@@ -13,6 +13,7 @@ import { huesFor, shortName, subjectName, teacherDirectory, type Person } from "
 import { key as teacherKey, teachersFor } from "./teachers";
 import { layAssemblies, noticesFor, type DayAssembly, type LessonAssembly } from "./lib/assemblies";
 import { gradeRows, subjectMatcher } from "./lib/grades";
+import { keepMembers } from "./classmates";
 
 export type { DayAssembly, LessonAssembly } from "./lib/assemblies";
 
@@ -159,7 +160,7 @@ export const load = action({
   args: { token: v.string(), day: v.string() },
   handler: async (ctx, { token, day }): Promise<{ ok: true } | Problem> => {
     if (!isDay(day)) return { ok: false, code: "unavailable", message: "That is not a day." };
-    const account = await deviceAccount(ctx, token, { reader: true });
+    const account = await deviceAccount(ctx, token, { reader: true, guest: true });
     if (!account) return { ok: false, code: "signed-out", message: "This device is signed out." };
     const today = schoolToday(account.slug);
     if (day < addDays(today, -365) || day > addDays(today, 365)) return { ok: false, code: "unavailable", message: "Compass Neo shows a year either way." };
@@ -173,12 +174,25 @@ export const load = action({
 /**
  * The account a device's token is for. An AI's link (lib/agent.ts) is taken too, but only by a query: it reads
  * everything a page does and changes nothing, so a mutation (whose db can insert) is never handed its account.
+ *
+ * A guest's sign-in (auth.ts, guest mode) is taken only where the caller says so (`guest`): the day, its timetable.
+ * Everywhere else it is no one, so a guest's grades, work and the rest never show on the device they borrowed.
  */
-export async function accountFor(ctx: QueryCtx, token: string) {
-  if (isAgentToken(token)) return "insert" in ctx.db ? null : readAgentToken(ctx, token);
+export async function accountFor(ctx: QueryCtx, token: string, opts?: { guest?: boolean }) {
+  return (await readerFor(ctx, token, opts))?.account ?? null;
+}
+
+/** accountFor, saying too whether the token is a guest's. */
+export async function readerFor(ctx: QueryCtx, token: string, opts?: { guest?: boolean }) {
+  if (isAgentToken(token)) {
+    const account = "insert" in ctx.db ? null : await readAgentToken(ctx, token);
+    return account && { account, guest: false };
+  }
   const tokenHash = await hashToken(token);
   const session = await ctx.db.query("sessions").withIndex("by_token", i => i.eq("tokenHash", tokenHash)).first();
-  return session && ctx.db.get(session.accountId);
+  if (!session || (session.guest && !opts?.guest)) return null;
+  const account = await ctx.db.get(session.accountId);
+  return account && { account, guest: !!session.guest };
 }
 
 export const compassRow = (ctx: QueryCtx, accountId: Id<"accounts">, kind: string) =>
@@ -231,11 +245,15 @@ export const day = query({
   args: { token: v.union(v.string(), v.null()), day: v.string() },
   handler: async (ctx, { token, day }): Promise<Day | null> => {
     if (!token || !isDay(day)) return null;
-    const account = await accountFor(ctx, token);
-    if (!account) return null;
+    const reader = await readerFor(ctx, token, { guest: true });
+    if (!reader) return null;
+    const { account, guest } = reader;
     const row = await compassRow(ctx, account._id, `day:${day}`);
     if (!row) return { status: "missing", day };
-    return (await readDays(ctx, account, [{ day, items: (row.data ?? []) as StoredLesson[] }]))[0]!;
+    const shown = (await readDays(ctx, account, [{ day, items: (row.data ?? []) as StoredLesson[] }]))[0]!;
+    // A guest sees the timetable on someone else's device: their marks stay off it.
+    if (guest && shown.status === "ready") return { ...shown, lessons: shown.lessons.map(l => ({ ...l, grade: null })) };
+    return shown;
   },
 });
 
@@ -247,7 +265,7 @@ export const day = query({
 export async function readDays(ctx: QueryCtx, account: Doc<"accounts">, days: Array<{ day: string; items: StoredLesson[] }>): Promise<Day[]> {
   if (!days.length) return [];
   const classes = ((await compassRow(ctx, account._id, "classes"))?.data ?? []) as StoredClass[];
-  const { source, grades: gradesRow } = await gradeRows(ctx, account);
+  const { source, grades: gradesRow } = await gradeRows(ctx, account, { history: false });
   const grades = (gradesRow?.data ?? []) as SubjectGrade[];
   const subjectOfClass = await subjectMatcher(ctx, account, source);
   const notices = ((await connectRow(ctx, account._id, "notices"))?.data ?? []) as ConnectNotice[];
@@ -355,7 +373,10 @@ export const keepDays = internalMutation({
         known.set(l.code, c);
       }
     }
-    await put("classes", [...known.values()].sort((a, b) => a.code.localeCompare(b.code)));
+    const classes = [...known.values()].sort((a, b) => a.code.localeCompare(b.code));
+    await put("classes", classes);
+    // Who takes which class, so a new mark in one can find the student's classmates (convex/classmates.ts).
+    await keepMembers(ctx, account, classes);
 
     // Days far from today go, so the cache follows the calendar instead of growing with it.
     const rows = await ctx.db

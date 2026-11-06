@@ -50,7 +50,7 @@ export async function classTarget(ctx: QueryCtx, account: Doc<"accounts">, code:
   }
   let canvas: ClassTarget["canvas"] = null;
   if (account.sealedCanvas && !account.canvasRefused) {
-    const view = await canvasView(ctx, account, await currentClasses(ctx, account));
+    const view = await canvasView(ctx, account, await currentClasses(ctx, account), {});
     const course = view?.courses.find(c => view.codeOf.get(c.id) === code);
     if (course) canvas = { courseId: course.id, name: course.name, url: course.url };
   }

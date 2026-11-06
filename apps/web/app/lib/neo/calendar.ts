@@ -1,5 +1,5 @@
 import { useAction, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
+import { useQuery } from "./live";
 import { api } from "@compassneo/backend/api";
 
 /**

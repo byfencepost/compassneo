@@ -59,7 +59,7 @@ export const load = action({
     const row = await ctx.runQuery(internal.cache.get, { accountId: account._id, store: "connect", kind: kindOf(classId) });
     if (!force && row && Date.now() - row.checkedAt < FRESH) return { ok: true };
     const r = await withConnect(ctx, account, c => getLearners(c, classId));
-    await ctx.runMutation(internal.cache.put, { accountId: account._id, store: "connect", kind: kindOf(classId), ...(r.ok ? { data: r.value } : { error: r.message }) });
+    await ctx.runMutation(internal.cache.put, { accountId: account._id, store: "connect", kind: kindOf(classId), stamp: true, ...(r.ok ? { data: r.value } : { error: r.message }) });
     return { ok: true };
   },
 });

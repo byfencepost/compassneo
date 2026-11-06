@@ -18,11 +18,22 @@ export type GradeSource = "connect" | "canvas";
 export const gradeSource = (account: Pick<Doc<"accounts">, "slug" | "sealedCanvas">): GradeSource | null =>
   isWA(account.slug) ? "connect" : account.sealedCanvas ? "canvas" : null;
 
-/** The account's grades row and history row, from wherever its grades come from. */
-export async function gradeRows(ctx: QueryCtx, account: Doc<"accounts">): Promise<{ source: GradeSource | null; grades: Row | null; history: Row | null }> {
+/**
+ * The account's grades row and history row, from wherever its grades come from. A caller that never shows the history
+ * says so (history: false), and history is then null: a query pays for every row it reads, each time any of them moves.
+ */
+export async function gradeRows(
+  ctx: QueryCtx,
+  account: Doc<"accounts">,
+  { history = true }: { history?: boolean } = {},
+): Promise<{ source: GradeSource | null; grades: Row | null; history: Row | null }> {
   const source = gradeSource(account);
   if (!source) return { source, grades: null, history: null };
-  return { source, grades: await readRow(ctx, account._id, source, "grades"), history: await readRow(ctx, account._id, source, "history") };
+  return {
+    source,
+    grades: await readRow(ctx, account._id, source, "grades"),
+    history: history ? await readRow(ctx, account._id, source, "history") : null,
+  };
 }
 
 /** Canvas ids as the numbers a task is keyed by: the id itself while it fits, else a hash of it. */

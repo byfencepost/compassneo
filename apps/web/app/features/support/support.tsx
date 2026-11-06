@@ -8,7 +8,7 @@ import { Help, Icon } from "@/components/glaze/icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/glaze/ui/tooltip";
 import { cn } from "@/lib/glaze/utils";
 import { spring } from "@/lib/neo/motion";
-import { useSession } from "@/lib/neo/session";
+import { guestStore, useSession } from "@/lib/neo/session";
 
 const KEY = import.meta.env.VITE_MEDIAN_PUBLIC_KEY as string | undefined;
 
@@ -43,10 +43,12 @@ export function askForHelp(about: string) {
  * account they are reading; the browser never holds anything that could sign. Signed out, it is an anonymous visitor.
  * When this device signs out (by the person, or behind its back when Compass rejects the saved login) the widget
  * forgets its conversation, so the next person on a shared computer starts clean. The agent's tools open pages and
- * classes by address (routes/home.tsx reads it).
+ * classes by address (routes/home.tsx reads it). While a guest is on (features/guest) it is not there at all: it would
+ * be the device's own student's, and the guest's screen has no help button to open it.
  */
 export function Support() {
   const { token, me } = useSession();
+  const guest = guestStore.use();
   const navigate = useNavigate();
   const identity = useAction(api.median.identity);
   const [signed, setSigned] = useState<{ token: string; user: MedianUser } | null>(null);
@@ -66,7 +68,7 @@ export function Support() {
     };
   }, [token, identity]);
 
-  if (!KEY) return null;
+  if (!KEY || guest) return null;
   // Until the signature arrives, the name is shown (unverified, display only); the id joins once it is signed.
   const user = signed && signed.token === token ? signed.user : me ? { name: me.fullName ?? me.displayName } : undefined;
   return (

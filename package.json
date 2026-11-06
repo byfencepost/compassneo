@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun run --filter @compassneo/web dev",
     "dev:backend": "bun run --filter @compassneo/backend dev",
+    "dev:mobile": "bun run --filter @compassneo/mobile remote",
     "build": "bun run --filter @compassneo/web build",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter @compassneo/web lint",

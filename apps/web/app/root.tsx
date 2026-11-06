@@ -9,6 +9,7 @@ import "@/features/timetable/timetable.css";
 import "@/features/class/class.css";
 import "@/features/student/student.css";
 import "@/features/home/announcements.css";
+import "@/features/guest/guest.css";
 import "@/features/viewer/viewer.css";
 import "@mediansh/widget/styles.css";
 import "@/features/support/support.css";

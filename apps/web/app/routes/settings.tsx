@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Navigate, PrefetchPageLinks, useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/settings";
-import { useSession, useSignOut } from "@/lib/neo/session";
+import { guestStore, useSession, useSignOut } from "@/lib/neo/session";
 import { morphRoute } from "@/lib/neo/morph";
 import { useArrival } from "@/lib/neo/arrive";
 import { cn } from "@/lib/glaze/utils";
@@ -27,6 +27,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const location = useLocation();
   const arrival = useArrival();
+  const guest = guestStore.use();
   const token = session.token;
   const me = session.me;
 
@@ -49,6 +50,8 @@ export default function Settings() {
   });
 
   if (session.status === "signed-out" || !me || !token) return <Navigate to="/login" replace />;
+  // The device's settings are not a guest's to see: while one is on, it is their day.
+  if (guest) return <Navigate to="/" replace />;
 
   // As from home: the screen morphs to sign-in, and the session is cleared once it is up.
   const leave = async () => {

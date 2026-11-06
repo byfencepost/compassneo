@@ -7,7 +7,8 @@ import { isWA } from "./lib/connect";
 import { addDays, isDay, schoolToday } from "./lib/days";
 import { historyKey, type History, type HistoryPoint } from "./lib/history";
 import { lastLessons, type LastLesson } from "./lib/lessons";
-import { huesFor, matchSubject, shortName } from "./lib/match";
+import { huesFor, shortName } from "./lib/match";
+import { classesOfSubjects, connectCodes, shownSemester } from "./lib/subjects";
 import { readRow } from "./cache";
 import { connectClassFor, semesterGrade, type Assessment, type SemesterGrade } from "./classes";
 import { accountFor, compassRow, connectRow, semesterOf, type StoredClass } from "./timetable";
@@ -66,19 +67,12 @@ async function classesOf(ctx: QueryCtx, account: Doc<"accounts">) {
 type Board = { klass: ConnectClass; code: string | null; row: ConnectRow };
 
 /**
- * Every Connect class's kept submission board, with the timetable class it belongs to: each current class finds its
- * Connect class the way the class panel does (lib/target.ts, connectClassFor), so a submission opens on the class whose
- * Work section lists it. Finished Connect classes no current class claims are left out.
+ * Every Connect class's kept submission board, with the timetable class it belongs to (connectCodes), so a submission
+ * opens on the class whose Work section lists it. Finished Connect classes no current class claims are left out.
  */
 async function boardsOf(ctx: QueryCtx, account: Doc<"accounts">, current: StoredClass[]): Promise<Board[]> {
   if (!isWA(account.slug)) return [];
-  const connectClasses = ((await connectRow(ctx, account._id, "classes"))?.data ?? []) as ConnectClass[];
-  const notices = ((await connectRow(ctx, account._id, "notices"))?.data ?? []) as ConnectNotice[];
-  const codeOf = new Map<number, string>();
-  for (const c of current) {
-    const k = connectClassFor(c.code, c.subject, c.teachers, connectClasses, notices);
-    if (k && !codeOf.has(k.classId)) codeOf.set(k.classId, c.code);
-  }
+  const { connectClasses, codeOf } = await connectCodes(ctx, account, current);
   const out: Board[] = [];
   for (const klass of connectClasses) {
     if (klass.finished && !codeOf.has(klass.classId)) continue;
@@ -263,42 +257,12 @@ export const grades = query({
     const from = Math.max(fetchedAt - WEEK, history?.since ?? 0);
 
     // The day's semester, or the other when Connect has nothing for it yet (a new semester).
-    const wanted = semesterOf(day);
-    const semester: 1 | 2 = all.some(g => g.semester === wanted) ? wanted : (all[0]?.semester ?? wanted);
+    const semester = shownSemester(all, semesterOf(day));
     const shown = all.filter(g => g.semester === semester);
     const rest = all.filter(g => g.semester !== semester);
 
-    // Which class each subject is: every class on the timetable picks its subject the way its card's grade does
-    // (classlist.ts). Homeroom is never a subject (its teacher may teach one). Two classes picking one subject (shared
-    // teachers) go to the one whose name says so, else the first. The other semester's subject is the same class where
-    // it has the same name; else a class picks it only when the names agree too (strict), since the teacher of last
-    // semester's subject may well teach a different class now.
-    const classOf = new Map<SubjectGrade, StoredClass>();
-    const named = (c: StoredClass, g: SubjectGrade) =>
-      source === "canvas" ? subjectOfClass(c, [g]) === g : !!matchSubject({ code: c.code, subject: c.subject, teachers: [] }, [g]);
-    const pick = (subjects: SubjectGrade[], strict: boolean) => {
-      const picked = new Map<SubjectGrade, StoredClass[]>();
-      for (const c of current) {
-        if (shortName(c.subject, c.code) === "Homeroom") continue;
-        const g = subjectOfClass({ code: c.code, subject: c.subject, teachers: c.teachers }, subjects);
-        if (g && (!strict || named(c, g))) picked.set(g, [...(picked.get(g) ?? []), c]);
-      }
-      for (const [g, cs] of picked) {
-        if (classOf.has(g)) continue;
-        const byName = cs.filter(c => named(c, g));
-        classOf.set(g, byName.length === 1 ? byName[0]! : cs[0]!);
-      }
-    };
-    pick(shown, false);
-    for (const g of rest) {
-      const twin = shown.find(s => squashName(s.subject) === squashName(g.subject));
-      const c = twin && classOf.get(twin);
-      if (c) classOf.set(g, c);
-    }
-    pick(
-      rest.filter(g => !classOf.has(g)),
-      true,
-    );
+    // Which class each subject is (lib/subjects.ts), as a new mark's notification sees it too.
+    const classOf = classesOfSubjects(all, semester, current, source, subjectOfClass);
 
     const subjectOf = (g: SubjectGrade): OverviewSubject => {
       const c = classOf.get(g) ?? null;

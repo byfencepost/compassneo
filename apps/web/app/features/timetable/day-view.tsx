@@ -21,7 +21,8 @@ type Props = {
   dir: number;
   /** The class open in the panel, by code: its cards are marked. */
   selected: string | null;
-  onOpen: (k: string, el: HTMLElement) => void;
+  /** Opens a lesson's class. Left out (a guest's day, features/guest), the cards open nothing. */
+  onOpen?: (k: string, el: HTMLElement) => void;
   onNextDay: () => void;
 };
 

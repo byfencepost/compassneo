@@ -36,17 +36,31 @@ export type CanvasView = {
   classOfAnnouncement: (a: CanvasAnnouncement) => string | null;
 };
 
-export async function canvasView(ctx: QueryCtx, account: Doc<"accounts">, classes: StoredClass[]): Promise<CanvasView | null> {
+/**
+ * What a caller needs beyond the courses and which class each is. Each course's work row is tens of kilobytes, and a
+ * query pays for every row it reads each time any of them changes, so a caller that only matches courses to classes
+ * (the class panel, a class's target) leaves them out: work and announcements are then empty.
+ */
+export type CanvasViewNeeds = { work?: boolean; announcements?: boolean };
+
+export async function canvasView(
+  ctx: QueryCtx,
+  account: Doc<"accounts">,
+  classes: StoredClass[],
+  needs: CanvasViewNeeds = { work: true, announcements: true },
+): Promise<CanvasView | null> {
   if (!account.sealedCanvas) return null;
   const courses = ((await readRow(ctx, account._id, "canvas", "courses"))?.data ?? []) as CanvasCourse[];
   const matched = matchCourses(classes, courses);
   const codeOf = new Map([...matched].map(([code, c]) => [c.id, code]));
   const work: CanvasView["work"] = new Map();
-  for (const c of courses) {
+  for (const c of needs.work ? courses : []) {
     const row = await readRow(ctx, account._id, "canvas", workKind(c.id));
     if (row) work.set(c.id, { data: (row.data as CanvasWork | null) ?? null, fetchedAt: row.fetchedAt, error: row.error });
   }
-  const announcements = ((await readRow(ctx, account._id, "canvas", "announcements"))?.data ?? []) as CanvasAnnouncement[];
+  const announcements = needs.announcements
+    ? (((await readRow(ctx, account._id, "canvas", "announcements"))?.data ?? []) as CanvasAnnouncement[])
+    : [];
   // Each class under its own name, and under its course's ("Health and Movement" for a class Compass calls
   // HPE).
   const named = [...classes, ...[...matched].map(([code, c]) => ({ code, subject: c.name, teachers: [] as string[] }))];

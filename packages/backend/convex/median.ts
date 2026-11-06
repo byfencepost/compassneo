@@ -24,7 +24,8 @@ export const identity = action({
   args: { token: v.string() },
   handler: async (ctx, { token }): Promise<{ id: string; hash: string; name: string } | null> => {
     const found = await ctx.runQuery(internal.accounts.byTokenHash, { tokenHash: await hashToken(token) });
-    if (!found) return null;
+    // A guest (auth.ts) is never helped as themselves on someone else's device.
+    if (!found || found.session.guest) return null;
     const { account } = found;
     return { id: account.key, hash: await signMedianUser(account.key), name: account.fullName ?? account.displayName };
   },

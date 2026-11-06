@@ -1,14 +1,13 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
-import { isNonRetryableError, NonRetryableError, type WorkId } from "@convex-dev/workpool";
+import type { Doc, Id } from "./_generated/dataModel";
 import { CompassError, getUserDetails, type CompassSession } from "@compassneo/compass";
 import { ConnectError, type ConnectClass, type ConnectNotice, type ConnectSession } from "@compassneo/connect";
 import { hashToken } from "./lib/crypto";
 import { withCompass, type Problem } from "./lib/compass";
 import { isWA, withConnect } from "./lib/connect";
-import { addDays, schoolToday } from "./lib/days";
+import { addDays, schoolClock, schoolToday } from "./lib/days";
 import { fetchDays, WINDOW_AHEAD, WINDOW_BEHIND } from "./timetable";
 import { syncTeachers } from "./teachers";
 import { fetchConnectWork, syncTasks } from "./work";
@@ -16,9 +15,8 @@ import { fetchCompassAttendance, fetchConnectAttendance } from "./attendance";
 import { fetchEvents } from "./events";
 import { fetchChronicle } from "./chronicle";
 import { fetchNews } from "./announcements";
-import { farewellFor, live, setState } from "./accounts";
-import { same, STAMP_EVERY } from "./lib/same";
-import { backgroundPool, poolFor, syncPool } from "./pools";
+import { farewellFor, live, SEEN_EVERY, setState } from "./accounts";
+import { same } from "./lib/same";
 import { CanvasError, type CanvasCourse, type CanvasSession } from "@compassneo/canvas";
 import { hasCanvas, withCanvas } from "./lib/canvas";
 import { fetchAnnouncements as fetchCanvasAnnouncements, fetchCourses, fetchWork as fetchCanvasWork } from "./canvas";
@@ -34,40 +32,70 @@ import { fetchAnnouncements as fetchCanvasAnnouncements, fetchCourses, fetchWork
  *          grades, work, attendance), then Canvas when the student has added it (courses, work, grades, announcements)
  *   quick  only what changes minute to minute: the timetable from yesterday to a week on, learning tasks, news
  *
- * Every run is a job in a workpool (convex/pools.ts), never an action a client waits on: `begin` writes the row and
- * enqueues its job in one transaction. Runs someone is waiting on (a sign-in, opening the app, "Sync now", an open
- * tab's minute sync) go in syncPool, background ones in backgroundPool. A job that dies is tried again and picks up
- * where it stopped, skipping the steps already settled; one that fails every try, or is called off, is ended by `done`.
+ * Every run is a job on Convex's scheduler, never an action a client waits on: `begin` writes the row and schedules its
+ * job in one transaction. Runs nobody asked for (background, classmate) that start together are spread a few seconds
+ * apart (STAGGER), so the load on Compass stays even, and they give way to anyone who is here while they wait. A job
+ * that throws is tried again (`retry`, up to MAX_ATTEMPTS, backing off) and picks up where it stopped, skipping the
+ * steps already settled; one that fails every try is ended there. A job that dies without a word (the action timed out)
+ * is let go by the next request for the account, once it has been quiet ALIVE_STALE.
+ *
+ * Not a workpool, on purpose: a workpool runs each job as an action inside an action of its own (so every second of a
+ * sync was paid for twice), and its loop is a dozen mutations a job on top. Nothing here needs what it adds: an account
+ * has one run at a time already, and the background is spread by the scheduler (`tick`).
  *
  * When runs happen:
  *   sign-in, "Sync now"   a full run, at once
- *   opening the app       a full run if the last full one is over a quarter hour old, else a quick one if the last run
- *                         is over 40 seconds old
- *   an open tab           the same, about once a minute while it is in front of someone (lib/neo/sync.ts)
- *   background            a full run every quarter hour (hourly once no device has opened the app in three days),
- *                         each account at its own minute in the quarter so the load stays even (`tick`)
- * Quiet runs (an open tab's, the background's) never show as syncing; they only move "Synced 2 minutes ago" on. Nobody
- * watches their steps go, so they are written once per source as it ends, not as each starts and ends: every write to
- * the run runs `latest` again on every open device.
+ *   opening the app       a full run if the last full one is over FULL_EVERY old, else a quick one if the last run is
+ *                         over QUICK_EVERY old
+ *   an open tab           the same, about every five minutes while it is in front of someone (lib/neo/sync.ts)
+ *   background            a full run every half hour in school hours, hourly the rest of the waking day and every few
+ *                         hours at night (twice as far apart once no device has opened the app in three days), each
+ *                         account at its own minute in the quarter hour so the load stays even (`tick`, turnAfter)
+ *   classmate             a full run out of turn, when a classmate's sync found a new mark in a class they share
+ *                         (convex/classmates.ts), so the student hears of their own mark now rather than at their turn
+ * Quiet runs (an open tab's, the background's, a classmate's) never show as syncing; they only move "Synced 2 minutes
+ * ago" on. Nobody watches their steps go, so they are written once per source as it ends, not as each starts and ends:
+ * every write to the run runs `latest` again on every open device.
+ *
+ * What a run finds new is told as it is kept (convex/marks.ts): new work set, and marks back.
  */
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-/** Background runs come round this often, each account at its own place in it (its phase, from its id). */
-const PERIOD = 15 * MINUTE;
-/** An account no device has opened the app on in this long is synced in the background only hourly, on its phase. */
-const DORMANT_AFTER = 3 * DAY;
-const DORMANT_EVERY = 4 * PERIOD;
-/** Opening the app, or an open tab, asks for a full run once the last full one is this old. */
-const FULL_EVERY = 15 * MINUTE;
-/** A background run is not needed when a full run finished this recently (an open tab has done it). */
-const BACKGROUND_FRESH = 10 * MINUTE;
-/** Quick runs are at least this far apart, however many tabs ask; under a tab's minute, so none of its asks is lost. */
-const QUICK_EVERY = 40 * SECOND;
 /**
- * A run whose job has not started in this long is taken as lost (the sync pool starts one in seconds, and a queued
+ * Background turns fall on a grid of this, each account at its own place in it (its phase, from its id), and come
+ * round every few of it by the hour at the school (turnAfter).
+ */
+const PERIOD = 15 * MINUTE;
+/** How far apart background turns are, by the school's clock: school hours, the rest of the waking day, the night. */
+const SCHOOL_EVERY = 2 * PERIOD;
+const AWAKE_EVERY = 4 * PERIOD;
+const NIGHT_EVERY = 12 * PERIOD;
+/** School hours (weekdays) and the waking day, in the school's hours. */
+const SCHOOL_HOURS = [7, 17] as const;
+const AWAKE_HOURS = [7, 22] as const;
+/** An account no device has opened the app on in this long has its turns twice as far apart. */
+const DORMANT_AFTER = 3 * DAY;
+/** Opening the app, or an open tab, asks for a full run once the last full one is this old. */
+const FULL_EVERY = 30 * MINUTE;
+/** A background run is not needed when a full run finished this recently (an open tab has done it). */
+const BACKGROUND_FRESH = 20 * MINUTE;
+/**
+ * Nor a classmate's when one finished this recently: it most likely saw the mark already. Short, as a run that finished
+ * a few minutes before the classmate's found the mark may well have been before the teacher let it out.
+ */
+const CLASSMATE_FRESH = 3 * MINUTE;
+/** Quick runs are at least this far apart, however many tabs ask; under a tab's five minutes, so none of its asks is lost. */
+const QUICK_EVERY = 4 * MINUTE;
+/** A job that throws is tried this many times in all, each wait twice the last (from RETRY_FIRST). */
+const MAX_ATTEMPTS = 3;
+const RETRY_FIRST = { loud: 2 * SECOND, quiet: 10 * SECOND };
+/** Runs nobody asked for that start in one go (a tick's batch, a classmate's nudge) start this far apart. */
+const STAGGER = 5 * SECOND;
+/**
+ * A run whose job has not started in this long is taken as lost (the scheduler starts one in seconds, and a queued
  * background run is superseded as soon as someone asks). One heard nothing from in ALIVE_STALE died with its job: an
  * action cannot run longer, and a retry would have said so by then. The app reads runs the same way (lib/neo/sync.ts).
  */
@@ -98,12 +126,14 @@ type Source = "compass" | "connect" | "canvas";
 type Status = "waiting" | "running" | "done" | "failed" | "skipped";
 type Outcome = { count?: number; note?: string };
 
-const reasonV = v.union(v.literal("sign-in"), v.literal("open"), v.literal("manual"), v.literal("active"), v.literal("background"));
+const reasonV = v.union(v.literal("sign-in"), v.literal("open"), v.literal("manual"), v.literal("active"), v.literal("background"), v.literal("classmate"));
 const sourceV = v.union(v.literal("compass"), v.literal("connect"), v.literal("canvas"));
 const statusV = v.union(v.literal("waiting"), v.literal("running"), v.literal("done"), v.literal("failed"), v.literal("skipped"));
 
 /** Runs someone is watching: the gauges draw these as they go. The rest are quiet. */
 const LOUD: Reason[] = ["sign-in", "open", "manual"];
+/** Runs nobody asked for (the background's turn, a classmate's new mark): they start STAGGER apart, and give way. */
+const unasked = (r: Reason) => r === "background" || r === "classmate";
 const loud = (r: Pick<Doc<"syncs">, "reason" | "watched">) => LOUD.includes(r.reason) || !!r.watched;
 const isSettled = (s: Status) => s === "done" || s === "failed" || s === "skipped";
 const isFull = (r: Doc<"syncs">) => !!r.finishedAt && (r.kind ?? "full") === "full";
@@ -183,9 +213,9 @@ export const now = mutation({
       return farewell ? { ok: false, ...farewell } : { ok: false, code: "signed-out", message: "This device is signed out." };
     }
     const at = Date.now();
-    // The device is in use (noted at most hourly, as every other call does): it is not swept, and it keeps its account
-    // on the quarter-hour background cadence.
-    if (at - session.lastSeenAt > HOUR) await ctx.db.patch(session._id, { lastSeenAt: at });
+    // The device is in use (noted every SEEN_EVERY, as every other call does): it is not swept, and it keeps its account
+    // off the dormant cadence.
+    if (at - session.lastSeenAt > SEEN_EVERY) await ctx.db.patch(session._id, { lastSeenAt: at });
     const why: Reason = force ? "manual" : (reason ?? "open");
     await begin(ctx, account, why, why === "manual", at);
     return { ok: true };
@@ -211,38 +241,80 @@ export const signedIn = internalMutation({
   },
 });
 
-/** Plans a run and, if there is one, enqueues its job in the same transaction, so a row never lacks its job. */
+/** Plans a run and, if there is one, schedules its job in the same transaction, so a row never lacks its job. */
 export async function begin(ctx: MutationCtx, account: Doc<"accounts">, reason: Reason, force: boolean, now: number) {
   const runId = await plan(ctx, account, reason, force, now);
-  if (!runId) return null;
-  const workId = await poolFor(reason).enqueueAction(ctx, internal.sync.run, { runId }, { onComplete: internal.sync.done });
-  await ctx.db.patch(runId, { workId });
+  if (!runId || runId === "busy") return null;
+  await schedule(ctx, runId, 0);
   return runId;
+}
+
+/**
+ * Plans a run for each of several accounts, nobody waiting on any (the reason is background or classmate), and
+ * schedules their jobs STAGGER apart. Says which accounts got a run, and which had one in flight already (busy): the
+ * rest needed none.
+ */
+export async function beginAll(ctx: MutationCtx, accounts: Doc<"accounts">[], reason: Reason, now: number) {
+  const started: Array<{ accountId: Id<"accounts">; runId: Id<"syncs"> }> = [];
+  const busy: Id<"accounts">[] = [];
+  for (const a of accounts) {
+    const runId = await plan(ctx, a, reason, false, now);
+    if (runId === "busy") busy.push(a._id);
+    else if (runId) started.push({ accountId: a._id, runId });
+  }
+  await enqueueAll(ctx, started.map(s => s.runId));
+  return { started: started.map(s => s.accountId), busy };
+}
+
+/** Schedules the jobs of runs just planned, nobody waiting on them, STAGGER apart. */
+async function enqueueAll(ctx: MutationCtx, runIds: Id<"syncs">[]) {
+  for (let i = 0; i < runIds.length; i++) await schedule(ctx, runIds[i]!, i * STAGGER);
+}
+
+/** A run's job, on the scheduler: its id is kept as the run's workId, to call it off by. */
+async function schedule(ctx: MutationCtx, runId: Id<"syncs">, delay: number) {
+  const workId = await ctx.scheduler.runAfter(delay, internal.sync.run, { runId });
+  await ctx.db.patch(runId, { workId });
+}
+
+/**
+ * Calls off a run's job if it has not started. A job already going stops at its next step (it finds the run over).
+ * Runs from before the scheduler have a workpool's id instead, which names nothing here: those are left be (their
+ * pools are gone, and their jobs with them).
+ */
+async function callOff(ctx: MutationCtx, run: Doc<"syncs">) {
+  const id = run.workId ? ctx.db.system.normalizeId("_scheduled_functions", run.workId) : null;
+  const job = id && (await ctx.db.system.get(id));
+  if (job && job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
 }
 
 /**
  * What a request gets, from when the account last finished a run and a full run:
  *   sign-in, "Sync now"  a full run, however fresh the last
  *   background           a full run, unless one finished in the last BACKGROUND_FRESH (an open tab did it)
+ *   classmate            a full run (Connect's and Canvas's grades are only in full runs), unless one finished in the
+ *                        last CLASSMATE_FRESH
  *   open, active         a full run once the last full one is over FULL_EVERY old, else a quick one once the last run
  *                        is over QUICK_EVERY old, else nothing
  */
 function kindFor(reason: Reason, force: boolean, now: number, lastAt?: number, lastFullAt?: number): Kind | null {
   if (force || reason === "sign-in" || reason === "manual") return "full";
   if (reason === "background") return lastFullAt && now - lastFullAt < BACKGROUND_FRESH ? null : "full";
+  if (reason === "classmate") return lastFullAt && now - lastFullAt < CLASSMATE_FRESH ? null : "full";
   if (!lastFullAt || now - lastFullAt > FULL_EVERY) return "full";
   if (!lastAt || now - lastAt > QUICK_EVERY) return "quick";
   return null;
 }
 
 /**
- * Writes a new run for the account, waiting for its job, or returns null when it needs none. One run at a time: a run
- * in flight (queued, or running and heard from lately) answers the request, and someone asking to see it gets to
- * watch it. Two exceptions: a background run that has not started yet gives way to someone who is here (their run
- * takes its place, in the quicker pool, and is full as the background's would have been), and a run that has gone
- * quiet (see QUEUED_STALE) is let go first.
+ * Writes a new run for the account, waiting for its job, or returns null when it needs none, or "busy" when a run in
+ * flight (queued, or running and heard from lately) answers the request: one run at a time, and someone asking to see
+ * the run in flight gets to watch it. Two exceptions: a run nobody asked for (background, classmate) that has not
+ * started yet gives way to someone who is here (their run takes its place, at once, and is full as the waiting one
+ * would have been), and a run that has gone quiet (see QUEUED_STALE) is let go first. A run nobody asked
+ * for never takes another's place: a classmate's waits behind whatever is in flight, as the background's does.
  */
-async function plan(ctx: MutationCtx, account: Doc<"accounts">, reason: Reason, force: boolean, now: number): Promise<Id<"syncs"> | null> {
+async function plan(ctx: MutationCtx, account: Doc<"accounts">, reason: Reason, force: boolean, now: number): Promise<Id<"syncs"> | "busy" | null> {
   const runs = await ctx.db
     .query("syncs")
     .withIndex("by_account", i => i.eq("accountId", account._id))
@@ -252,18 +324,20 @@ async function plan(ctx: MutationCtx, account: Doc<"accounts">, reason: Reason, 
 
   const last = runs[0];
   if (last && !last.finishedAt) {
-    // A row from before the pools has no job to wait for: it is judged by when it started.
+    // A row with no job to wait for (from before the pools) is judged by when it started.
     const queued = !!last.workId && !last.aliveAt;
-    if (queued && last.reason === "background" && reason !== "background" && kind) {
-      await backgroundPool.cancel(ctx, last.workId as WorkId);
+    if (queued && unasked(last.reason) && !unasked(reason) && kind) {
+      await callOff(ctx, last);
       await ctx.db.delete(last._id);
       runs.shift();
       kind = "full";
-    } else if (queued ? reason !== "background" && now - last.startedAt > QUEUED_STALE : now - (last.aliveAt ?? last.startedAt) > ALIVE_STALE) {
+    } else if (queued ? now - last.startedAt > QUEUED_STALE : now - (last.aliveAt ?? last.startedAt) > ALIVE_STALE) {
+      // However it was asked for: the scheduler starts a job within seconds (STAGGER apart at most a few minutes), so
+      // one still waiting this long never will, as with a run left in a pool that is gone.
       await letGo(ctx, last, "Stopped answering.");
     } else {
       if (LOUD.includes(reason) && !loud(last)) await ctx.db.patch(last._id, { watched: true });
-      return null;
+      return "busy";
     }
   }
   if (!kind) return null;
@@ -282,7 +356,7 @@ async function plan(ctx: MutationCtx, account: Doc<"accounts">, reason: Reason, 
   const keepFull = runs.find(isFull);
   for (const old of runs.slice(KEEP_RUNS - 1)) {
     if (old._id === keepFull?._id) continue;
-    if (!old.finishedAt && old.workId) await poolFor(old.reason).cancel(ctx, old.workId as WorkId);
+    if (!old.finishedAt) await callOff(ctx, old);
     await ctx.db.delete(old._id);
   }
   return id;
@@ -299,7 +373,7 @@ async function settle(ctx: MutationCtx, run: Doc<"syncs">, status: "failed" | "s
 
 /** Calls a run's job off and ends the run. A job already going stops at its next step (it finds the run over). */
 async function letGo(ctx: MutationCtx, run: Doc<"syncs">, note: string) {
-  if (run.workId) await poolFor(run.reason).cancel(ctx, run.workId as WorkId);
+  await callOff(ctx, run);
   await settle(ctx, run, "failed", note);
 }
 
@@ -315,7 +389,29 @@ function phaseOf(id: string) {
 /** The first moment after t at the phase. */
 const slotAfter = (t: number, phase: number) => t + ((((phase - (t % PERIOD)) % PERIOD) + PERIOD) % PERIOD || PERIOD);
 
-/** When a device last opened the app on the account (noted at most hourly). */
+/** How far apart background turns are at a moment, by the school's clock; twice as far for a dormant account. */
+function everyAt(slug: string, at: number, dormant: boolean) {
+  const { hour, weekday } = schoolClock(slug, at);
+  const every =
+    weekday && hour >= SCHOOL_HOURS[0] && hour < SCHOOL_HOURS[1]
+      ? SCHOOL_EVERY
+      : hour >= AWAKE_HOURS[0] && hour < AWAKE_HOURS[1]
+        ? AWAKE_EVERY
+        : NIGHT_EVERY;
+  return dormant ? 2 * every : every;
+}
+
+/**
+ * The account's next turn after one at `from`: the first slot on its phase that is as far on as the hour there asks.
+ * Taken a PERIOD at a time, so a long night's wait ends as school hours begin rather than running on past them.
+ */
+function turnAfter(slug: string, from: number, dormant: boolean) {
+  let t = from + PERIOD;
+  while (t - from < everyAt(slug, t, dormant)) t += PERIOD;
+  return t;
+}
+
+/** When a device last opened the app on the account (noted every few hours). */
 async function lastSeen(ctx: MutationCtx, accountId: Id<"accounts">) {
   const devices = await ctx.db.query("sessions").withIndex("by_account", i => i.eq("accountId", accountId)).take(20);
   return Math.max(0, ...devices.map(d => d.lastSeenAt));
@@ -323,8 +419,8 @@ async function lastSeen(ctx: MutationCtx, accountId: Id<"accounts">) {
 
 /**
  * The background scheduler, every minute (crons.ts). Takes the accounts whose turn has come, oldest first, in
- * bounded batches by index (never a scan), plans a background run for each, enqueues them in backgroundPool as one
- * batch, and moves each account on a whole turn, so it keeps its phase and the load stays spread. An account with a
+ * bounded batches by index (never a scan), plans a background run for each, schedules them STAGGER apart, and moves
+ * each account on to its next turn (turnAfter), so it keeps its phase and the load stays spread. An account with a
  * run in flight, or one fresh from an open tab, is just moved on. One a whole turn behind (the batch was full, or the
  * scheduler was down) goes back to its phase from now rather than catching up in a burst.
  *
@@ -357,20 +453,12 @@ export const tick = internalMutation({
         continue;
       }
       const runId = await plan(ctx, account, "background", false, now);
-      if (runId) runIds.push(runId);
-      const every = (await lastSeen(ctx, account._id)) > now - DORMANT_AFTER ? PERIOD : DORMANT_EVERY;
-      const next = state.nextSyncAt! + every;
+      if (runId && runId !== "busy") runIds.push(runId);
+      const dormant = (await lastSeen(ctx, account._id)) <= now - DORMANT_AFTER;
+      const next = turnAfter(account.slug, state.nextSyncAt!, dormant);
       await ctx.db.patch(state._id, { nextSyncAt: next > now ? next : slotAfter(now, phaseOf(account._id)) });
     }
-    if (runIds.length) {
-      const workIds = await backgroundPool.enqueueActionBatch(
-        ctx,
-        internal.sync.run,
-        runIds.map(runId => ({ runId })),
-        { onComplete: internal.sync.done },
-      );
-      for (let i = 0; i < runIds.length; i++) await ctx.db.patch(runIds[i], { workId: workIds[i] });
-    }
+    await enqueueAll(ctx, runIds);
     // More due than a batch: a few more rounds now, and the rest wait for the next tick.
     const more = due.length === TICK_BATCH || unseen.length === TICK_BATCH || moving.length === TICK_BATCH;
     if (more && round + 1 < TICK_ROUNDS) await ctx.scheduler.runAfter(0, internal.sync.tick, { round: round + 1 });
@@ -379,12 +467,44 @@ export const tick = internalMutation({
 
 // ---------- the job ----------
 
-/** A run's job, in its pool. Picks up where an earlier attempt stopped: only the steps not settled yet run. */
+/**
+ * A run's job. Picks up where an earlier attempt stopped: only the steps not settled yet run. One that throws is tried
+ * again (`retry`), unless it threw because the run is over (RunOver): then there is nothing left to do.
+ */
 export const run = internalAction({
   args: { runId: v.id("syncs") },
   handler: async (ctx, { runId }) => {
     const started = await ctx.runMutation(internal.sync.attempt, { runId });
-    if (started) await runSync(ctx, started.run, started.account);
+    if (!started) return;
+    try {
+      await runSync(ctx, started.run, started.account);
+    } catch (e) {
+      if (e instanceof RunOver) return;
+      console.error(`sync ${runId}:`, e);
+      await ctx.runMutation(internal.sync.retry, { runId, error: failure(e).slice(0, 180) });
+    }
+  },
+});
+
+/** Thrown by a step's mark once the run is over (let go, or its account forgotten): no retry would help. */
+class RunOver extends Error {
+  constructor() {
+    super("This sync is over.");
+  }
+}
+
+/**
+ * A job that threw: tried again after a wait (twice as long each time) while it has tries left, else the run ends
+ * there, the steps left failed with what went wrong.
+ */
+export const retry = internalMutation({
+  args: { runId: v.id("syncs"), error: v.string() },
+  handler: async (ctx, { runId, error }) => {
+    const run = await ctx.db.get(runId);
+    if (!run || run.finishedAt) return;
+    const attempts = run.attempts ?? 1;
+    if (attempts >= MAX_ATTEMPTS) return settle(ctx, run, "failed", `Gave up: ${error}`);
+    await schedule(ctx, runId, RETRY_FIRST[loud(run) ? "loud" : "quiet"] * 2 ** (attempts - 1));
   },
 });
 
@@ -401,19 +521,6 @@ export const attempt = internalMutation({
     const steps = run.steps.map(s => (s.status === "running" ? { ...s, status: "waiting" as const } : s));
     await ctx.db.patch(runId, { attempts: (run.attempts ?? 0) + 1, aliveAt: Date.now(), steps });
     return { run: { ...run, steps }, account: await live(ctx, account) };
-  },
-});
-
-/**
- * The pools' word that a job is over. A run the job did not finish itself (it failed every try, or was called off
- * before it started) ends here, the steps left failed with the reason.
- */
-export const done = syncPool.defineOnComplete<DataModel>({
-  handler: async (ctx, { workId, result }) => {
-    const run = await ctx.db.query("syncs").withIndex("by_work", i => i.eq("workId", workId)).first();
-    if (!run || run.finishedAt) return;
-    if (result.kind === "success") return settle(ctx, run, "skipped");
-    await settle(ctx, run, "failed", result.kind === "failed" ? `Gave up: ${result.error}`.slice(0, 200) : "Called off before it finished.");
   },
 });
 
@@ -481,7 +588,7 @@ async function runSync(ctx: ActionCtx, run: Doc<"syncs">, account: Doc<"accounts
   const flush = async () => {
     if (!pending.length) return;
     const on = await ctx.runMutation(internal.sync.steps, { runId: run._id, marks: pending.splice(0) });
-    if (!on) throw new NonRetryableError("This sync is over.");
+    if (!on) throw new RunOver();
   };
   const markIn =
     (source: Source): Mark =>
@@ -491,7 +598,7 @@ async function runSync(ctx: ActionCtx, run: Doc<"syncs">, account: Doc<"accounts
         return;
       }
       const on = await ctx.runMutation(internal.sync.step, { runId: run._id, key, source, status, ...o });
-      if (!on) throw new NonRetryableError("This sync is over.");
+      if (!on) throw new RunOver();
     };
   const mark = markIn("compass");
   const kind = run.kind ?? "full";
@@ -508,7 +615,7 @@ async function runSync(ctx: ActionCtx, run: Doc<"syncs">, account: Doc<"accounts
         try {
           await mark(key, "done", await COMPASS[key](ctx, account, s, kind));
         } catch (e) {
-          if (isNonRetryableError(e) || (e instanceof CompassError && e.code === "expired")) throw e;
+          if (e instanceof RunOver || (e instanceof CompassError && e.code === "expired")) throw e;
           await mark(key, "failed", { note: failure(e) });
         }
         settled.add(key);
@@ -591,7 +698,7 @@ async function runConnect(ctx: ActionCtx, account: Doc<"accounts">, run: Doc<"sy
       try {
         await mark(key, "done", await STEPS[key](c));
       } catch (e) {
-        if (isNonRetryableError(e) || (e instanceof ConnectError && e.code === "expired")) throw e;
+        if (e instanceof RunOver || (e instanceof ConnectError && e.code === "expired")) throw e;
         await mark(key, "failed", { note: failure(e) });
         if (key === "grades") await store("grades", { error: grades?.data ? outOfDate : failure(e) });
       }
@@ -641,7 +748,7 @@ async function runCanvas(ctx: ActionCtx, account: Doc<"accounts">, run: Doc<"syn
       try {
         await mark(key, "done", await STEPS[key](s));
       } catch (e) {
-        if (isNonRetryableError(e) || (e instanceof CanvasError && e.code === "bad-token")) throw e;
+        if (e instanceof RunOver || (e instanceof CanvasError && e.code === "bad-token")) throw e;
         await mark(key, "failed", { note: failure(e) });
       }
       left.delete(key);
@@ -708,13 +815,21 @@ export const keep = internalMutation({
   args: { accountId: v.id("accounts"), kind: v.string(), data: v.any() },
   handler: async (ctx, { accountId, kind, data }) => {
     if (!(await ctx.db.get(accountId))) return;
-    const now = Date.now();
-    const row = await ctx.db.query("compassCache").withIndex("by_account_kind", i => i.eq("accountId", accountId).eq("kind", kind)).unique();
-    if (!row) await ctx.db.insert("compassCache", { accountId, kind, data, fetchedAt: now });
-    else if (!same(row.data, data)) await ctx.db.patch(row._id, { data, fetchedAt: now });
-    else if (now - row.fetchedAt > STAMP_EVERY) await ctx.db.patch(row._id, { fetchedAt: now });
+    await keepRow(ctx, accountId, kind, data);
   },
 });
+
+/**
+ * A compassCache row replaced (keep, and work.ts keepTasks), written only when it changed: not even its time moves
+ * otherwise, as the sync's own steps say when it was last checked (`checked`, cache.ts put).
+ */
+export async function keepRow(ctx: MutationCtx, accountId: Id<"accounts">, kind: string, data: unknown) {
+  const now = Date.now();
+  const row = await ctx.db.query("compassCache").withIndex("by_account_kind", i => i.eq("accountId", accountId).eq("kind", kind)).unique();
+  if (!row) await ctx.db.insert("compassCache", { accountId, kind, data, fetchedAt: now });
+  else if (!same(row.data, data)) await ctx.db.patch(row._id, { data, fetchedAt: now });
+  return row;
+}
 
 /** When a step last came back done for the account (0 if not in the runs kept): a fetch on demand skips what is fresh. */
 export const checkedAt = internalQuery({

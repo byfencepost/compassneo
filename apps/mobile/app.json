@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "Compass Neo",
+    "slug": "compassneo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "compassneo",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "app.compassneo",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0C0C0C",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "app.compassneo"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0C0C0C",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 120
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Compass Neo uses your photos to hand in work.",
+          "cameraPermission": "Compass Neo uses the camera to photograph work you hand in.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#0081FF",
+          "defaultChannel": "default"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "f8fe7c52-5274-40f2-b61e-2483d528a59c"
+      }
+    },
+    "owner": "saltjsx"
+  }
+}
